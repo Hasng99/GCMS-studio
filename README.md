@@ -4,7 +4,7 @@ MassHunter library hit를 지방산 산화 휘발성분 프로필 또는 Quality
 
 ## 웹에서 사용
 
-[GC-MS RI Studio 열기](https://gcms-ri-studio-dmy6t3wdeveszxytppjjkf.streamlit.app/)
+[GC-MS RI Studio 열기](https://lllstudio.streamlit.app/)
 
 Windows, macOS, 모바일에서 별도 설치 없이 브라우저로 사용할 수 있습니다. 첫 접속은 Streamlit 서버가 깨어나는 데 수십 초가 걸릴 수 있습니다.
 
