@@ -697,7 +697,7 @@ def analysis_page(config: dict, standards: pd.DataFrame, profile: pd.DataFrame) 
             "siloxane 계열 제외",
             value=bool(st.session_state["exclude_siloxane"]),
             key="analysis_siloxane_widget",
-            help="Compound name에 'siloxane' 또는 'siloxyl'이 포함된 물질을 추천 결과에서 제외합니다.",
+            help="Compound name에 'siloxane', 'siloxyl' 또는 'siloxy'가 포함된 물질을 추천 결과에서 제외합니다.",
         )
         st.session_state["quality_threshold"] = float(threshold)
         st.session_state["fuzzy_matching"] = bool(fuzzy)

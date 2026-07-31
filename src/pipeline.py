@@ -15,7 +15,7 @@ OUTPUT_COLUMNS = [
     "inclusion_reason", "lower_alkane", "upper_alkane", "lower_rt", "upper_rt",
     "ri", "ri_status", "nist_gc_url", "area", "selected_for_peak_summary",
 ]
-SILOXANE_FAMILY_TOKENS = ("siloxane", "siloxyl")
+SILOXANE_FAMILY_TOKENS = ("siloxane", "siloxyl", "siloxy")
 
 
 @dataclass

@@ -49,7 +49,11 @@ def test_both_is_not_duplicated() -> None:
 def test_siloxane_family_can_be_excluded_from_recommendations() -> None:
     hits, profile, standards = _inputs()
     for compound_number, name in enumerate(
-        ["Cyclotrisiloxane", "Trimethylsiloxyl compound"],
+        [
+            "Cyclotrisiloxane",
+            "Trimethylsiloxyl compound",
+            "Methyldisiloxy compound",
+        ],
         start=3,
     ):
         hits.loc[len(hits)] = {
@@ -68,7 +72,11 @@ def test_siloxane_family_can_be_excluded_from_recommendations() -> None:
         quality_threshold=80,
         exclude_siloxane=True,
     )
-    excluded_names = {"Cyclotrisiloxane", "Trimethylsiloxyl compound"}
+    excluded_names = {
+        "Cyclotrisiloxane",
+        "Trimethylsiloxyl compound",
+        "Methyldisiloxy compound",
+    }
     assert excluded_names.isdisjoint(set(result.selected_hits["canonical_name"]))
     excluded = result.rejected_hits[
         result.rejected_hits["canonical_name"].isin(excluded_names)
