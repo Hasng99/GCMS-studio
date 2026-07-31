@@ -42,7 +42,7 @@ def settings_to_json_bytes(
     clean_profile = validate_profile(profile)
     payload = {
         "schema_version": SETTINGS_SCHEMA_VERSION,
-        "app": "GC-MS RI Studio",
+        "app": "GC-MS Studio",
         "saved_at_utc": datetime.now(timezone.utc).isoformat(),
         "analysis": {
             "quality_threshold": float(quality_threshold),

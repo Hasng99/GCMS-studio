@@ -1,6 +1,6 @@
 import pandas as pd
 
-from app import summary_view
+from app import APP_NAME, RESULT_COLUMN_LABELS, summary_view
 
 from src.pipeline import run_pipeline
 
@@ -47,3 +47,29 @@ def test_summary_column_priority_and_hidden_identifiers() -> None:
     ]
     assert "sample_name" not in summary.columns
     assert "compound_number" not in summary.columns
+
+
+def test_result_column_labels_match_ui_requirements() -> None:
+    assert APP_NAME == "GC-MS Studio"
+    assert RESULT_COLUMN_LABELS == {
+        "sample_name": "Sample info.",
+        "compound_number": "No.",
+        "rt_min": "RT(min)",
+        "hit_number": "Hit No.",
+        "hit_name_original": "Hit name",
+        "canonical_name": "Compound name",
+        "cas_number": "CAS No.",
+        "quality": "Quality",
+        "profile_match": "Profile match",
+        "parent_fatty_acid": "Parent FAs",
+        "inclusion_reason": "",
+        "lower_alkane": "Lower alkane",
+        "upper_alkane": "Upper alkane",
+        "lower_rt": "Lower RT",
+        "upper_rt": "Upper RT",
+        "ri": "RI",
+        "ri_status": "RI status",
+        "nist_gc_url": "NIST url",
+        "area": "Area",
+        "selected_for_peak_summary": "Selected for peak summary",
+    }

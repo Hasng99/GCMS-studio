@@ -1,10 +1,10 @@
-# GC-MS RI Studio
+# GC-MS Studio
 
 HS-SPME/GC-MS로 얻어진 휘발성 지방산화생성물 프로필 또는 MassHunter library 기준으로 선별하고, Standard n-alkane RT로 RI를 판별하는 Streamlit 웹 앱입니다.
 
 ## 웹에서 사용
 
-[GC-MS RI Studio 열기](https://lllstudio.streamlit.app/)
+[GC-MS Studio 열기](https://lllstudio.streamlit.app/)
 
 Windows, macOS, 모바일에서 별도 설치 없이 브라우저로 사용할 수 있습니다. 첫 접속은 Streamlit 서버가 깨어나는 데 수십 초가 걸릴 수 있습니다.
 

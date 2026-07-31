@@ -18,6 +18,29 @@ from src.standard_selection import apply_selected_candidate_rts
 
 
 BASE_DIR = Path(__file__).parent
+APP_NAME = "GC-MS Studio"
+RESULT_COLUMN_LABELS = {
+    "sample_name": "Sample info.",
+    "compound_number": "No.",
+    "rt_min": "RT(min)",
+    "hit_number": "Hit No.",
+    "hit_name_original": "Hit name",
+    "canonical_name": "Compound name",
+    "cas_number": "CAS No.",
+    "quality": "Quality",
+    "profile_match": "Profile match",
+    "parent_fatty_acid": "Parent FAs",
+    "inclusion_reason": "",
+    "lower_alkane": "Lower alkane",
+    "upper_alkane": "Upper alkane",
+    "lower_rt": "Lower RT",
+    "upper_rt": "Upper RT",
+    "ri": "RI",
+    "ri_status": "RI status",
+    "nist_gc_url": "NIST url",
+    "area": "Area",
+    "selected_for_peak_summary": "Selected for peak summary",
+}
 
 
 def apply_theme() -> None:
@@ -25,6 +48,7 @@ def apply_theme() -> None:
     <style>
     .stApp{background:#f5f7fb;color:#172033}
     [data-testid="stHeader"]{background:rgba(245,247,251,.9)}
+    [data-testid="stStatusWidget"]{display:none!important}
     [data-testid="stSidebar"]{background:linear-gradient(180deg,#10233f,#22365f)}
     [data-testid="stSidebar"] h1,[data-testid="stSidebar"] h2,
     [data-testid="stSidebar"] h3,[data-testid="stSidebar"] label,
@@ -345,12 +369,30 @@ def nist_search_tab(result: PipelineResult) -> None:
     with right:
         st.link_button("NIST 상세 이름 검색 페이지 ↗", "https://webbook.nist.gov/chemistry/name-ser/", use_container_width=True)
     st.caption("NIST 페이지에서는 Gas Chromatography 표에서 temperature ramp/isothermal, active phase, 길이·내경·막 두께를 현재 실험 조건과 함께 비교하세요.")
+    nist_result = selected[
+        ["canonical_name", "cas_number", "rt_min", "ri", "ri_status", "nist_gc_url"]
+    ]
     st.dataframe(
-        selected[["canonical_name", "cas_number", "rt_min", "ri", "ri_status", "nist_gc_url"]],
+        nist_result,
         use_container_width=True,
         hide_index=True,
-        column_config={"nist_gc_url": st.column_config.LinkColumn("NIST RI", display_text="열기 ↗")},
+        column_config=result_column_config(nist_result),
     )
+
+
+def result_column_config(frame: pd.DataFrame) -> dict[str, object]:
+    """분석 결과의 내부 열 이름을 사용자용 표 머리글로 표시한다."""
+    column_config: dict[str, object] = {
+        column: label
+        for column, label in RESULT_COLUMN_LABELS.items()
+        if column in frame.columns
+    }
+    if "nist_gc_url" in frame.columns:
+        column_config["nist_gc_url"] = st.column_config.LinkColumn(
+            RESULT_COLUMN_LABELS["nist_gc_url"],
+            display_text="열기 ↗",
+        )
+    return column_config
 
 
 def summary_view(frame: pd.DataFrame) -> pd.DataFrame:
@@ -396,18 +438,19 @@ def analysis_page(config: dict, standards: pd.DataFrame, profile: pd.DataFrame) 
         st.dataframe(standards[["alkane_name", "ri", "rt_min"]], use_container_width=True, hide_index=True)
         return
     try:
-        hits, metadata = parse_masshunter(sample)
-        result = run_pipeline(
-            hits,
-            profile,
-            standards,
-            sample_name=metadata.get("sample_name", sample.name),
-            quality_threshold=threshold,
-            fuzzy=fuzzy,
-            allow_extrapolation=bool(config["ri"]["allow_extrapolation"]),
-            round_digits=int(config["ri"]["round_digits"]),
-            exact_tolerance=float(config["ri"]["exact_standard_tolerance_min"]),
-        )
+        with st.spinner("loading …"):
+            hits, metadata = parse_masshunter(sample)
+            result = run_pipeline(
+                hits,
+                profile,
+                standards,
+                sample_name=metadata.get("sample_name", sample.name),
+                quality_threshold=threshold,
+                fuzzy=fuzzy,
+                allow_extrapolation=bool(config["ri"]["allow_extrapolation"]),
+                round_digits=int(config["ri"]["round_digits"]),
+                exact_tolerance=float(config["ri"]["exact_standard_tolerance_min"]),
+            )
     except Exception as exc:
         st.error(f"분석을 완료하지 못했습니다: {exc}")
         return
@@ -429,7 +472,7 @@ def analysis_page(config: dict, standards: pd.DataFrame, profile: pd.DataFrame) 
                 frame,
                 use_container_width=True,
                 hide_index=True,
-                column_config={"nist_gc_url": st.column_config.LinkColumn("NIST RI", display_text="열기 ↗")},
+                column_config=result_column_config(frame),
             )
     with tabs[4]:
         nist_search_tab(result)
@@ -455,13 +498,13 @@ def analysis_page(config: dict, standards: pd.DataFrame, profile: pd.DataFrame) 
 
 
 def main() -> None:
-    st.set_page_config(page_title="GC-MS RI Studio", page_icon="🧪", layout="wide")
+    st.set_page_config(page_title=APP_NAME, page_icon="🧪", layout="wide")
     apply_theme()
     config, default_standards, default_profile = load_defaults()
     initialize_session(config, default_standards, default_profile)
-    st.markdown("""<div class="hero"><h1>GC-MS RI Studio</h1><p>MassHunter hit 선별 · 지방산 산화 프로필 매칭 · RI 계산 · NIST 조건 비교</p></div>""", unsafe_allow_html=True)
+    st.markdown(f"""<div class="hero"><h1>{APP_NAME}</h1><p>MassHunter hit 선별 · 지방산 산화 프로필 매칭 · RI 계산 · NIST 조건 비교</p></div>""", unsafe_allow_html=True)
     with st.sidebar:
-        st.markdown("## GC-MS RI Studio")
+        st.markdown(f"## {APP_NAME}")
         page = st.radio("화면 선택", ["분석", "기준 설정"], horizontal=True)
         st.divider()
     if page == "기준 설정":
