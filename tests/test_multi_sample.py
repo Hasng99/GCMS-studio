@@ -35,11 +35,11 @@ def test_replicate_comparison_chooses_lowest_area_cv_valid_combination() -> None
         ]),
         "rep-2": _frame([
             {
-                "canonical_name": "Hexanal", "rt_min": 3.08, "ri": 710,
+                "canonical_name": "Hexanal", "rt_min": 3.05, "ri": 710,
                 "area": 110, "quality": 92,
             },
             {
-                "canonical_name": "Hexanal", "rt_min": 3.05, "ri": 705,
+                "canonical_name": "Hexanal", "rt_min": 3.04, "ri": 705,
                 "area": 900, "quality": 99,
             },
         ]),
@@ -93,7 +93,7 @@ def test_replicate_comparison_requires_rt_and_ri_tolerances() -> None:
             "area": 100, "quality": 95,
         }]),
         "rep-2": _frame([{
-            "canonical_name": "Hexanal", "rt_min": 3.11, "ri": 710,
+            "canonical_name": "Hexanal", "rt_min": 3.051, "ri": 710,
             "area": 105, "quality": 95,
         }]),
     }

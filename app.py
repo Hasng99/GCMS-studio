@@ -34,6 +34,7 @@ from src.standard_selection import apply_selected_candidate_rts
 
 BASE_DIR = Path(__file__).parent
 APP_NAME = "GC-MS Studio"
+EXCLUDE_SILOXANE_DEFAULT = True
 RESULT_COLUMN_LABELS = {
     "sample_name": "Sample info.",
     "compound_number": "No.",
@@ -127,7 +128,7 @@ def initialize_session(config: dict, default_standards: pd.DataFrame, default_pr
         st.session_state["active_profile"] = validate_profile(default_profile)
     st.session_state.setdefault("quality_threshold", float(config["filter"]["quality_threshold"]))
     st.session_state.setdefault("fuzzy_matching", False)
-    st.session_state.setdefault("exclude_siloxane", False)
+    st.session_state.setdefault("exclude_siloxane", EXCLUDE_SILOXANE_DEFAULT)
 
 
 def active_reference_data() -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -605,7 +606,7 @@ def render_multi_results(
     with tabs[0]:
         if same_sample:
             st.caption(
-                "같은 Compound name 중 RT 범위가 0.1분 이내이고 RI 범위가 30 이내인 조합을 "
+                "같은 Compound name 중 RT 차이가 ±0.05분 이내이고 RI 차이가 ±30 이내인 조합을 "
                 "동일 물질로 봅니다. 가장 많은 반복파일을 포함한 뒤 Area CV가 가장 작은 조합의 "
                 "Mean RT, Mean RI, 모든 샘플별 Area와 Area 평균을 표시합니다."
             )
@@ -693,10 +694,10 @@ def analysis_page(config: dict, standards: pd.DataFrame, profile: pd.DataFrame) 
             help="오탐 가능성이 있어 기본값은 꺼짐입니다.",
         )
         exclude_siloxane = st.checkbox(
-            "siloxane 제외",
+            "siloxane 계열 제외",
             value=bool(st.session_state["exclude_siloxane"]),
             key="analysis_siloxane_widget",
-            help="Compound name에 'siloxane'이 포함된 물질을 추천 결과에서 제외합니다.",
+            help="Compound name에 'siloxane' 또는 'siloxyl'이 포함된 물질을 추천 결과에서 제외합니다.",
         )
         st.session_state["quality_threshold"] = float(threshold)
         st.session_state["fuzzy_matching"] = bool(fuzzy)

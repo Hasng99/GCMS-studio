@@ -15,6 +15,7 @@ OUTPUT_COLUMNS = [
     "inclusion_reason", "lower_alkane", "upper_alkane", "lower_rt", "upper_rt",
     "ri", "ri_status", "nist_gc_url", "area", "selected_for_peak_summary",
 ]
+SILOXANE_FAMILY_TOKENS = ("siloxane", "siloxyl")
 
 
 @dataclass
@@ -46,13 +47,16 @@ def run_pipeline(
         quality = pd.to_numeric(hit.get("quality"), errors="coerce")
         quality_pass = bool(pd.notna(quality) and quality >= quality_threshold)
         profile_match = bool(match["profile_match"])
-        siloxane_excluded = (
+        siloxane_family_excluded = (
             exclude_siloxane
-            and "siloxane" in str(match["canonical_name"]).casefold()
+            and any(
+                token in str(match["canonical_name"]).casefold()
+                for token in SILOXANE_FAMILY_TOKENS
+            )
         )
-        included = (profile_match or quality_pass) and not siloxane_excluded
-        if siloxane_excluded:
-            reason = "SILOXANE EXCLUDED"
+        included = (profile_match or quality_pass) and not siloxane_family_excluded
+        if siloxane_family_excluded:
+            reason = "SILOXANE FAMILY EXCLUDED"
         else:
             reason = (
                 "BOTH"

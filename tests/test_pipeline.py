@@ -2,6 +2,7 @@ import pandas as pd
 
 from app import (
     APP_NAME,
+    EXCLUDE_SILOXANE_DEFAULT,
     RESULT_COLUMN_LABELS,
     analysis_input_signature,
     result_table_view,
@@ -45,17 +46,21 @@ def test_both_is_not_duplicated() -> None:
     assert len(both) == 1
 
 
-def test_siloxane_can_be_excluded_from_recommendations() -> None:
+def test_siloxane_family_can_be_excluded_from_recommendations() -> None:
     hits, profile, standards = _inputs()
-    hits.loc[len(hits)] = {
-        "compound_number": 3,
-        "rt_min": 6.0,
-        "hit_number": 1,
-        "hit_name": "Cyclotrisiloxane",
-        "quality": 99,
-        "cas_number": "541-05-9",
-        "area": 300,
-    }
+    for compound_number, name in enumerate(
+        ["Cyclotrisiloxane", "Trimethylsiloxyl compound"],
+        start=3,
+    ):
+        hits.loc[len(hits)] = {
+            "compound_number": compound_number,
+            "rt_min": 6.0,
+            "hit_number": 1,
+            "hit_name": name,
+            "quality": 99,
+            "cas_number": "",
+            "area": 300,
+        }
     result = run_pipeline(
         hits,
         profile,
@@ -63,11 +68,24 @@ def test_siloxane_can_be_excluded_from_recommendations() -> None:
         quality_threshold=80,
         exclude_siloxane=True,
     )
-    assert "Cyclotrisiloxane" not in set(result.selected_hits["canonical_name"])
+    excluded_names = {"Cyclotrisiloxane", "Trimethylsiloxyl compound"}
+    assert excluded_names.isdisjoint(set(result.selected_hits["canonical_name"]))
     excluded = result.rejected_hits[
-        result.rejected_hits["canonical_name"] == "Cyclotrisiloxane"
+        result.rejected_hits["canonical_name"].isin(excluded_names)
     ]
-    assert excluded["inclusion_reason"].tolist() == ["SILOXANE EXCLUDED"]
+    assert set(excluded["inclusion_reason"]) == {"SILOXANE FAMILY EXCLUDED"}
+    included = run_pipeline(
+        hits,
+        profile,
+        standards,
+        quality_threshold=80,
+        exclude_siloxane=False,
+    )
+    assert excluded_names.issubset(set(included.selected_hits["canonical_name"]))
+
+
+def test_siloxane_family_exclusion_is_enabled_by_default_in_ui() -> None:
+    assert EXCLUDE_SILOXANE_DEFAULT is True
 
 
 def test_summary_column_priority_and_hidden_identifiers() -> None:

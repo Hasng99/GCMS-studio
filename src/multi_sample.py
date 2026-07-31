@@ -80,7 +80,7 @@ def _comparison_candidates(
 def build_replicate_area_comparison(
     frames: Mapping[str, pd.DataFrame],
     *,
-    rt_tolerance: float = 0.1,
+    rt_tolerance: float = 0.05,
     ri_tolerance: float = 30.0,
 ) -> pd.DataFrame:
     """반복시료에서 RT·RI 허용범위를 만족하며 Area CV가 가장 작은 조합을 찾는다."""

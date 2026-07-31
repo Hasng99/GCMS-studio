@@ -14,7 +14,7 @@ Windows, macOS, 모바일에서 별도 설치 없이 브라우저로 사용할 �
 - 여러 시료 결과 파일 동시 업로드 및 반복시료/서로 다른 샘플 비교
 - 파일 선택 후 그라데이션 `Start` 버튼을 눌러 분석 실행
 - Profile match or Quality threshold로 후보 물질 선별
-- Compound name의 `siloxane` 포함 물질 선택적 제외
+- 기본으로 활성화되는 `siloxane 계열 제외` 옵션으로 Compound name에 `siloxane` 또는 `siloxyl`이 포함된 물질 제외
 - Kovats RI 계산
 - NIST Chemistry WebBook GC/RI 바로가기
 - Standard RT와 휘발성분 프로필의 표 직접 편집
@@ -24,7 +24,7 @@ Windows, macOS, 모바일에서 별도 설치 없이 브라우저로 사용할 �
 
 ## 다중 파일 비교
 
-- **동일 샘플 내 반복시료**: Compound name이 같고 RT 범위가 0.1분 이내이며 RI 범위가 30 이내인 후보를 동일 물질로 간주합니다. 가능한 조합 중 가장 많은 반복파일을 포함하고 Area CV가 가장 작은 조합을 선택해 Mean RT, Compound name, Mean RI, 반복 수, Area 평균, 샘플별 Area, 검출 샘플을 표시합니다.
+- **동일 샘플 내 반복시료**: Compound name이 같고 RT 차이가 ±0.05분 이내이며 RI 차이가 ±30 이내인 후보를 동일 물질로 간주합니다. 가능한 조합 중 가장 많은 반복파일을 포함하고 Area CV가 가장 작은 조합을 선택해 Mean RT, Compound name, Mean RI, 반복 수, Area 평균, 샘플별 Area, 검출 샘플을 표시합니다.
 - **서로 다른 샘플**: Compound name을 기준으로 공통 검출, 부분 공통, 개별 검출 물질을 구분하고 샘플별 RT, RI, Area와 각 샘플의 요약 탭을 제공합니다.
 
 ## Standard RT 변경
