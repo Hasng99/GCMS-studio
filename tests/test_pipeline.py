@@ -39,6 +39,31 @@ def test_both_is_not_duplicated() -> None:
     assert len(both) == 1
 
 
+def test_siloxane_can_be_excluded_from_recommendations() -> None:
+    hits, profile, standards = _inputs()
+    hits.loc[len(hits)] = {
+        "compound_number": 3,
+        "rt_min": 6.0,
+        "hit_number": 1,
+        "hit_name": "Cyclotrisiloxane",
+        "quality": 99,
+        "cas_number": "541-05-9",
+        "area": 300,
+    }
+    result = run_pipeline(
+        hits,
+        profile,
+        standards,
+        quality_threshold=80,
+        exclude_siloxane=True,
+    )
+    assert "Cyclotrisiloxane" not in set(result.selected_hits["canonical_name"])
+    excluded = result.rejected_hits[
+        result.rejected_hits["canonical_name"] == "Cyclotrisiloxane"
+    ]
+    assert excluded["inclusion_reason"].tolist() == ["SILOXANE EXCLUDED"]
+
+
 def test_summary_column_priority_and_hidden_identifiers() -> None:
     result = run_pipeline(*_inputs(), quality_threshold=80)
     summary = summary_view(result.peak_summary)

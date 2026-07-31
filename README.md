@@ -11,13 +11,20 @@ Windows, macOS, 모바일에서 별도 설치 없이 브라우저로 사용할 �
 ## 주요 기능
 
 - MassHunter 추출 `.xls`, `.xlsx`, `.csv` 파일 업로드
+- 여러 시료 결과 파일 동시 업로드 및 반복시료/서로 다른 샘플 비교
 - Profile match or Quality threshold로 후보 물질 선별
+- Compound name의 `siloxane` 포함 물질 선택적 제외
 - Kovats RI 계산
 - NIST Chemistry WebBook GC/RI 바로가기
 - Standard RT와 휘발성분 프로필의 표 직접 편집
 - MassHunter Standard `.xls`의 여러 RT 후보 중 사용할 값 선택
 - 현재 Standard RT·프로필·Quality 설정을 단일 JSON 파일로 저장 및 복원
 - CSV 및 다중 시트 XLSX 결과 다운로드
+
+## 다중 파일 비교
+
+- **동일 샘플 내 반복시료**: Compound name이 같고 RT 범위가 0.1분 이내이며 RI 범위가 30 이내인 후보를 동일 물질로 간주합니다. 가능한 조합 중 가장 많은 반복파일을 포함하고 Area CV가 가장 작은 조합의 전체 Area, 평균, 표준편차를 표시합니다.
+- **서로 다른 샘플**: Compound name을 기준으로 공통 검출, 부분 공통, 개별 검출 물질을 구분하고 샘플별 RT, RI, Area와 각 샘플의 요약 탭을 제공합니다.
 
 ## Standard RT 변경
 

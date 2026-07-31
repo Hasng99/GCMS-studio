@@ -34,6 +34,7 @@ def run_pipeline(
     sample_name: str = "",
     quality_threshold: float = 80,
     fuzzy: bool = False,
+    exclude_siloxane: bool = False,
     allow_extrapolation: bool = False,
     round_digits: int = 1,
     exact_tolerance: float = 0.003,
@@ -45,8 +46,19 @@ def run_pipeline(
         quality = pd.to_numeric(hit.get("quality"), errors="coerce")
         quality_pass = bool(pd.notna(quality) and quality >= quality_threshold)
         profile_match = bool(match["profile_match"])
-        included = profile_match or quality_pass
-        reason = "BOTH" if profile_match and quality_pass else ("PROFILE" if profile_match else ("QUALITY" if quality_pass else ""))
+        siloxane_excluded = (
+            exclude_siloxane
+            and "siloxane" in str(match["canonical_name"]).casefold()
+        )
+        included = (profile_match or quality_pass) and not siloxane_excluded
+        if siloxane_excluded:
+            reason = "SILOXANE EXCLUDED"
+        else:
+            reason = (
+                "BOTH"
+                if profile_match and quality_pass
+                else ("PROFILE" if profile_match else ("QUALITY" if quality_pass else ""))
+            )
         ri_result = calculate_ri(
             hit.get("rt_min"), standards, allow_extrapolation=allow_extrapolation,
             round_digits=round_digits, exact_tolerance=exact_tolerance,

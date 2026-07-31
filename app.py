@@ -8,9 +8,22 @@ import pandas as pd
 import streamlit as st
 import yaml
 
-from src.exporters import dataframe_to_csv_bytes, results_to_xlsx_bytes
+from src.exporters import (
+    dataframe_to_csv_bytes,
+    multi_results_to_xlsx_bytes,
+    results_to_xlsx_bytes,
+)
 from src.nist_links import nist_gc_url
 from src.matching import normalize_name
+from src.multi_sample import (
+    AREA_PREFIX,
+    DETECTED_PREFIX,
+    RI_PREFIX,
+    RT_PREFIX,
+    build_replicate_area_comparison,
+    build_sample_presence_comparison,
+    unique_sample_labels,
+)
 from src.parsers import parse_masshunter
 from src.pipeline import PipelineResult, run_pipeline
 from src.ri import validate_standards
@@ -100,6 +113,7 @@ def initialize_session(config: dict, default_standards: pd.DataFrame, default_pr
         st.session_state["active_profile"] = validate_profile(default_profile)
     st.session_state.setdefault("quality_threshold", float(config["filter"]["quality_threshold"]))
     st.session_state.setdefault("fuzzy_matching", False)
+    st.session_state.setdefault("exclude_siloxane", False)
 
 
 def active_reference_data() -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -422,54 +436,34 @@ def result_table_view(frame: pd.DataFrame) -> pd.DataFrame:
     return frame.drop(columns=["sample_name"], errors="ignore").copy()
 
 
-def analysis_page(config: dict, standards: pd.DataFrame, profile: pd.DataFrame) -> None:
-    with st.sidebar:
-        st.markdown("### 분석 입력")
-        threshold = st.number_input(
-            "Quality 기준",
-            min_value=0.0,
-            max_value=100.0,
-            value=float(st.session_state["quality_threshold"]),
-            step=1.0,
-            key="analysis_quality_widget",
-        )
-        fuzzy = st.checkbox(
-            "유사 이름 매칭 사용",
-            value=bool(st.session_state["fuzzy_matching"]),
-            key="analysis_fuzzy_widget",
-            help="오탐 가능성이 있어 기본값은 꺼짐입니다.",
-        )
-        st.session_state["quality_threshold"] = float(threshold)
-        st.session_state["fuzzy_matching"] = bool(fuzzy)
-        sample = st.file_uploader(
-            "시료 결과 (.xls/.xlsx/.csv)",
-            type=["xls", "xlsx", "csv"],
-            key="sample_upload",
-        )
-        st.caption(f"Standard RT: {len(standards)}행 · 프로필: {len(profile)}행")
-    if sample is None:
-        st.info("왼쪽에서 MassHunter 시료 결과 파일을 업로드하세요.")
-        st.markdown("**처리 흐름:** 업로드 → 후보 선별 → RI 계산 → NIST 비교 → CSV/XLSX 다운로드")
-        st.dataframe(standards[["alkane_name", "ri", "rt_min"]], use_container_width=True, hide_index=True)
-        return
-    try:
-        with st.spinner("loading …"):
-            hits, metadata = parse_masshunter(sample)
-            sample_name = str(metadata.get("sample_name") or Path(sample.name).stem)
-            result = run_pipeline(
-                hits,
-                profile,
-                standards,
-                sample_name=sample_name,
-                quality_threshold=threshold,
-                fuzzy=fuzzy,
-                allow_extrapolation=bool(config["ri"]["allow_extrapolation"]),
-                round_digits=int(config["ri"]["round_digits"]),
-                exact_tolerance=float(config["ri"]["exact_standard_tolerance_min"]),
-            )
-    except Exception as exc:
-        st.error(f"분석을 완료하지 못했습니다: {exc}")
-        return
+def comparison_column_config(frame: pd.DataFrame) -> dict[str, object]:
+    config: dict[str, object] = {
+        "canonical_name": "Compound name",
+        "sample_count": "Replicates",
+        "detected_samples": "Detected samples",
+        "mean_rt": "Mean RT(min)",
+        "rt_range": "RT range",
+        "mean_ri": "Mean RI",
+        "ri_range": "RI range",
+        "area_mean": "Area mean",
+        "area_std": "Area SD",
+        "area_cv_percent": "Area CV(%)",
+        "detection_status": "검출 구분",
+        "detected_count": "검출 샘플 수",
+    }
+    for column in frame.columns:
+        if column.startswith(AREA_PREFIX):
+            config[column] = f"Area · {column.removeprefix(AREA_PREFIX)}"
+        elif column.startswith(DETECTED_PREFIX):
+            config[column] = column.removeprefix(DETECTED_PREFIX)
+        elif column.startswith(RT_PREFIX):
+            config[column] = f"RT(min) · {column.removeprefix(RT_PREFIX)}"
+        elif column.startswith(RI_PREFIX):
+            config[column] = f"RI · {column.removeprefix(RI_PREFIX)}"
+    return {column: label for column, label in config.items() if column in frame.columns}
+
+
+def render_metrics(result: PipelineResult) -> None:
     labels = {
         "total_peaks": "전체 peak", "total_hits": "전체 hits", "profile_match": "Profile 일치",
         "quality_pass": "Quality 통과", "both": "BOTH", "ri_ok": "RI 성공", "out_of_range": "범위 밖",
@@ -477,10 +471,23 @@ def analysis_page(config: dict, standards: pd.DataFrame, profile: pd.DataFrame) 
     columns = st.columns(len(labels))
     for column, (key, label) in zip(columns, labels.items()):
         column.metric(label, result.metrics[key])
+
+
+def render_sample_info(sample_name: str) -> None:
     st.markdown(
         f'<div class="sample-info"><span>Sample name</span><strong>{escape(sample_name)}</strong></div>',
         unsafe_allow_html=True,
     )
+
+
+def render_single_result(
+    result: PipelineResult,
+    sample_name: str,
+    standards: pd.DataFrame,
+    profile: pd.DataFrame,
+) -> None:
+    render_metrics(result)
+    render_sample_info(sample_name)
     tabs = st.tabs([
         "요약", "Peak summary", "Selected hits", "Rejected hits",
         "NIST RI 검색", "Standards", "Profile",
@@ -520,6 +527,189 @@ def analysis_page(config: dict, standards: pd.DataFrame, profile: pd.DataFrame) 
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         use_container_width=True,
     )
+
+
+def render_multi_results(
+    results: dict[str, PipelineResult],
+    relationship: str,
+    standards: pd.DataFrame,
+    profile: pd.DataFrame,
+) -> None:
+    summary_frames = {
+        sample_name: result.peak_summary
+        for sample_name, result in results.items()
+    }
+    same_sample = relationship == "동일 샘플 내 반복시료"
+    if same_sample:
+        comparison = build_replicate_area_comparison(summary_frames)
+        comparison_label = "Area 비교"
+        comparison_sheet = "area_comparison"
+    else:
+        comparison = build_sample_presence_comparison(summary_frames)
+        comparison_label = "샘플 비교"
+        comparison_sheet = "sample_comparison"
+
+    tabs = st.tabs([
+        comparison_label,
+        *[f"{sample_name} 요약" for sample_name in results],
+        "Standards",
+        "Profile",
+    ])
+    with tabs[0]:
+        if same_sample:
+            st.caption(
+                "같은 Compound name 중 RT 범위가 0.1분 이내이고 RI 범위가 30 이내인 조합을 "
+                "동일 물질로 봅니다. 가장 많은 반복파일을 포함한 뒤 Area CV가 가장 작은 조합의 "
+                "모든 Area, 평균, 표준편차를 표시합니다."
+            )
+        else:
+            st.caption(
+                "Compound name을 기준으로 전체 샘플의 공통 검출, 일부 샘플의 부분 공통, "
+                "한 샘플에서만 나온 개별 검출 물질을 구분합니다."
+            )
+            status_counts = comparison["detection_status"].value_counts()
+            count_columns = st.columns(3)
+            for column, status in zip(
+                count_columns,
+                ["공통 검출", "부분 공통", "개별 검출"],
+            ):
+                column.metric(status, int(status_counts.get(status, 0)))
+        if comparison.empty:
+            st.info("비교 조건을 만족하는 물질이 없습니다.")
+        else:
+            st.dataframe(
+                comparison,
+                use_container_width=True,
+                hide_index=True,
+                column_config=comparison_column_config(comparison),
+            )
+
+    sample_tabs = tabs[1:1 + len(results)]
+    for tab, (sample_name, result) in zip(sample_tabs, results.items()):
+        with tab:
+            render_metrics(result)
+            render_sample_info(sample_name)
+            frame = summary_view(result.peak_summary)
+            st.dataframe(
+                frame,
+                use_container_width=True,
+                hide_index=True,
+                column_config=result_column_config(frame),
+            )
+    with tabs[-2]:
+        st.dataframe(standards, use_container_width=True, hide_index=True)
+    with tabs[-1]:
+        st.dataframe(profile, use_container_width=True, hide_index=True)
+
+    combined_selected = pd.concat(
+        [result.selected_hits for result in results.values()],
+        ignore_index=True,
+    )
+    left, right = st.columns(2)
+    left.download_button(
+        "전체 샘플 Selected hits CSV 다운로드",
+        dataframe_to_csv_bytes(combined_selected),
+        "multi_selected_hits.csv",
+        "text/csv",
+        use_container_width=True,
+    )
+    right.download_button(
+        "전체 샘플 결과 XLSX 다운로드",
+        multi_results_to_xlsx_bytes(
+            results,
+            standards,
+            profile,
+            comparison=comparison,
+            comparison_sheet=comparison_sheet,
+        ),
+        "gcms_multi_results.xlsx",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        use_container_width=True,
+    )
+
+
+def analysis_page(config: dict, standards: pd.DataFrame, profile: pd.DataFrame) -> None:
+    with st.sidebar:
+        st.markdown("### 분석 입력")
+        threshold = st.number_input(
+            "Quality 기준",
+            min_value=0.0,
+            max_value=100.0,
+            value=float(st.session_state["quality_threshold"]),
+            step=1.0,
+            key="analysis_quality_widget",
+        )
+        fuzzy = st.checkbox(
+            "유사 이름 매칭 사용",
+            value=bool(st.session_state["fuzzy_matching"]),
+            key="analysis_fuzzy_widget",
+            help="오탐 가능성이 있어 기본값은 꺼짐입니다.",
+        )
+        exclude_siloxane = st.checkbox(
+            "siloxane 제외",
+            value=bool(st.session_state["exclude_siloxane"]),
+            key="analysis_siloxane_widget",
+            help="Compound name에 'siloxane'이 포함된 물질을 추천 결과에서 제외합니다.",
+        )
+        st.session_state["quality_threshold"] = float(threshold)
+        st.session_state["fuzzy_matching"] = bool(fuzzy)
+        st.session_state["exclude_siloxane"] = bool(exclude_siloxane)
+        sample_uploads = st.file_uploader(
+            "시료 결과 (.xls/.xlsx/.csv, 복수 선택 가능)",
+            type=["xls", "xlsx", "csv"],
+            key="sample_upload",
+            accept_multiple_files=True,
+        )
+        relationship = "단일 시료"
+        if len(sample_uploads) > 1:
+            relationship = st.radio(
+                "업로드 파일 관계",
+                ["동일 샘플 내 반복시료", "서로 다른 샘플"],
+                key="multi_file_relationship",
+            )
+        st.caption(f"Standard RT: {len(standards)}행 · 프로필: {len(profile)}행")
+    if not sample_uploads:
+        st.info("왼쪽에서 MassHunter 시료 결과 파일을 하나 이상 업로드하세요.")
+        st.markdown("**처리 흐름:** 업로드 → 후보 선별 → RI 계산 → NIST 비교 → CSV/XLSX 다운로드")
+        st.dataframe(standards[["alkane_name", "ri", "rt_min"]], use_container_width=True, hide_index=True)
+        return
+    try:
+        with st.spinner("loading …"):
+            parsed_uploads: list[tuple[pd.DataFrame, str]] = []
+            for upload in sample_uploads:
+                try:
+                    hits, metadata = parse_masshunter(upload)
+                except Exception as exc:
+                    raise ValueError(f"{upload.name}: {exc}") from exc
+                parsed_uploads.append((
+                    hits,
+                    str(metadata.get("sample_name") or Path(upload.name).stem),
+                ))
+            sample_labels = unique_sample_labels([
+                sample_name for _, sample_name in parsed_uploads
+            ])
+            results: dict[str, PipelineResult] = {}
+            for (hits, _), sample_name in zip(parsed_uploads, sample_labels):
+                results[sample_name] = run_pipeline(
+                    hits,
+                    profile,
+                    standards,
+                    sample_name=sample_name,
+                    quality_threshold=threshold,
+                    fuzzy=fuzzy,
+                    exclude_siloxane=exclude_siloxane,
+                    allow_extrapolation=bool(config["ri"]["allow_extrapolation"]),
+                    round_digits=int(config["ri"]["round_digits"]),
+                    exact_tolerance=float(config["ri"]["exact_standard_tolerance_min"]),
+                )
+    except Exception as exc:
+        st.error(f"분석을 완료하지 못했습니다: {exc}")
+        return
+    if len(results) == 1:
+        sample_name, result = next(iter(results.items()))
+        render_single_result(result, sample_name, standards, profile)
+    else:
+        render_multi_results(results, relationship, standards, profile)
 
 
 def main() -> None:
