@@ -202,8 +202,14 @@ def build_replicate_area_comparison(
 
 def replicate_area_view(frame: pd.DataFrame) -> pd.DataFrame:
     """반복시료 Area 비교 화면에 필요한 열만 요청 순서대로 반환한다."""
+    ordered = frame.sort_values(
+        "sample_count",
+        ascending=False,
+        kind="stable",
+        na_position="last",
+    ).reset_index(drop=True)
     area_columns = [
-        column for column in frame.columns if column.startswith(AREA_PREFIX)
+        column for column in ordered.columns if column.startswith(AREA_PREFIX)
     ]
     columns = [
         "mean_rt",
@@ -214,7 +220,9 @@ def replicate_area_view(frame: pd.DataFrame) -> pd.DataFrame:
         *area_columns,
         "detected_samples",
     ]
-    return frame[[column for column in columns if column in frame.columns]].copy()
+    return ordered[
+        [column for column in columns if column in ordered.columns]
+    ].copy()
 
 
 def build_sample_presence_comparison(

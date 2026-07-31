@@ -56,24 +56,42 @@ def test_replicate_comparison_chooses_lowest_area_cv_valid_combination() -> None
     assert row["sample_count"] == 2
 
 
-def test_replicate_area_view_keeps_requested_columns_in_order() -> None:
-    comparison = pd.DataFrame([{
-        "canonical_name": "Hexanal",
-        "sample_count": 2,
-        "detected_samples": "rep-1, rep-2",
-        "mean_rt": 3.04,
-        "rt_range": 0.08,
-        "mean_ri": 700,
-        "ri_range": 20,
-        area_column("rep-1"): 100,
-        area_column("rep-2"): 110,
-        "area_mean": 105,
-        "area_std": 7.07,
-        "area_cv_percent": 6.73,
-    }])
+def test_replicate_area_view_orders_replicates_descending_and_keeps_columns() -> None:
+    comparison = pd.DataFrame([
+        {
+            "canonical_name": "Hexanal",
+            "sample_count": 2,
+            "detected_samples": "rep-1, rep-2",
+            "mean_rt": 3.04,
+            "rt_range": 0.05,
+            "mean_ri": 700,
+            "ri_range": 20,
+            area_column("rep-1"): 100,
+            area_column("rep-2"): 110,
+            "area_mean": 105,
+            "area_std": 7.07,
+            "area_cv_percent": 6.73,
+        },
+        {
+            "canonical_name": "Octanal",
+            "sample_count": 3,
+            "detected_samples": "rep-1, rep-2, rep-3",
+            "mean_rt": 5.02,
+            "rt_range": 0.04,
+            "mean_ri": 900,
+            "ri_range": 18,
+            area_column("rep-1"): 200,
+            area_column("rep-2"): 220,
+            "area_mean": 210,
+            "area_std": 10,
+            "area_cv_percent": 4.76,
+        },
+    ])
 
     view = replicate_area_view(comparison)
 
+    assert view["sample_count"].tolist() == [3, 2]
+    assert view["canonical_name"].tolist() == ["Octanal", "Hexanal"]
     assert view.columns.tolist() == [
         "mean_rt",
         "canonical_name",
