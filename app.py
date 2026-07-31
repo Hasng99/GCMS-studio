@@ -1,0 +1,475 @@
+from __future__ import annotations
+
+from pathlib import Path
+import hashlib
+
+import pandas as pd
+import streamlit as st
+import yaml
+
+from src.exporters import dataframe_to_csv_bytes, results_to_xlsx_bytes
+from src.nist_links import nist_gc_url
+from src.matching import normalize_name
+from src.parsers import parse_masshunter
+from src.pipeline import PipelineResult, run_pipeline
+from src.ri import validate_standards
+from src.settings_bundle import settings_from_json, settings_to_json_bytes, validate_profile
+from src.standard_selection import apply_selected_candidate_rts
+
+
+BASE_DIR = Path(__file__).parent
+
+
+def apply_theme() -> None:
+    st.markdown("""
+    <style>
+    .stApp{background:#f5f7fb;color:#172033}
+    [data-testid="stHeader"]{background:rgba(245,247,251,.9)}
+    [data-testid="stSidebar"]{background:linear-gradient(180deg,#10233f,#22365f)}
+    [data-testid="stSidebar"] h1,[data-testid="stSidebar"] h2,
+    [data-testid="stSidebar"] h3,[data-testid="stSidebar"] label,
+    [data-testid="stSidebar"] p,[data-testid="stSidebar"] span{color:#f8fafc}
+    [data-testid="stSidebar"] input{color:#172033!important;background:#fff!important}
+    [data-testid="stSidebar"] [data-testid="stFileUploaderDropzone"]{background:#fff;border:1px solid #d7dfec}
+    [data-testid="stSidebar"] [data-testid="stFileUploaderDropzone"] *{color:#24324a!important}
+    [data-testid="stSidebar"] [data-testid="stFileUploaderFile"]{background:#fff}
+    [data-testid="stSidebar"] [data-testid="stFileUploaderFile"] *{color:#24324a!important}
+    [data-testid="stSidebar"] button{border-color:#cbd5e1}
+    .block-container{max-width:1500px;padding-top:1.5rem}
+    .hero{padding:2rem 2.2rem;border-radius:22px;color:white;background:linear-gradient(120deg,#10233f,#126e82);box-shadow:0 14px 38px rgba(16,35,63,.18);margin-bottom:1.25rem}
+    .hero h1{margin:0 0 .5rem;font-size:2rem;color:white}.hero p{margin:0;color:#d9f3f5;font-size:1.02rem}
+    [data-testid="stMetric"]{background:#fff;border:1px solid #e5eaf1;padding:1rem;border-radius:16px;box-shadow:0 5px 18px rgba(15,23,42,.05)}
+    .stTabs [data-baseweb="tab-list"]{gap:.3rem}.stTabs [data-baseweb="tab"]{background:#fff;border-radius:10px 10px 0 0;padding:.5rem 1rem}
+    .status-card{background:#fff;border:1px solid #e5eaf1;border-radius:14px;padding:1rem 1.2rem;margin:.35rem 0}
+    .nist-card{background:linear-gradient(135deg,#eef8f8,#fff);border:1px solid #c8e7e8;border-radius:16px;padding:1.2rem 1.4rem;margin:.5rem 0 1rem}
+    </style>""", unsafe_allow_html=True)
+
+
+@st.cache_data
+def load_defaults() -> tuple[dict, pd.DataFrame, pd.DataFrame]:
+    with (BASE_DIR / "app_config.yaml").open(encoding="utf-8") as handle:
+        config = yaml.safe_load(handle)
+    return (
+        config,
+        pd.read_csv(BASE_DIR / "data" / "alkane_standard_rt.csv"),
+        pd.read_csv(BASE_DIR / "data" / "fatty_acid_volatile_profile.csv"),
+    )
+
+
+def initialize_session(config: dict, default_standards: pd.DataFrame, default_profile: pd.DataFrame) -> None:
+    if "active_standards" not in st.session_state:
+        st.session_state["active_standards"] = validate_standards(default_standards)
+    if "active_profile" not in st.session_state:
+        st.session_state["active_profile"] = validate_profile(default_profile)
+    st.session_state.setdefault("quality_threshold", float(config["filter"]["quality_threshold"]))
+    st.session_state.setdefault("fuzzy_matching", False)
+
+
+def active_reference_data() -> tuple[pd.DataFrame, pd.DataFrame]:
+    return st.session_state["active_standards"].copy(), st.session_state["active_profile"].copy()
+
+
+def read_confirmed_standard(upload: object) -> pd.DataFrame:
+    upload.seek(0)
+    suffix = Path(upload.name).suffix.lower()
+    if suffix == ".csv":
+        return validate_standards(pd.read_csv(upload))
+    if suffix == ".xlsx":
+        return validate_standards(pd.read_excel(upload, engine="openpyxl"))
+    raise ValueError("확정 Standard RT는 CSV 또는 XLSX 파일을 사용하세요.")
+
+
+def read_profile(upload: object, default_profile: pd.DataFrame) -> pd.DataFrame:
+    upload.seek(0)
+    suffix = Path(upload.name).suffix.lower()
+    if suffix == ".csv":
+        return validate_profile(pd.read_csv(upload))
+    if suffix == ".pdf":
+        payload = upload.read()
+        expected_sha256 = "a6251642a3f934be45a9d95963a2975bf1ea7e03891923f090f17148af41a516"
+        if hashlib.sha256(payload).hexdigest() != expected_sha256:
+            raise ValueError("이 PDF는 검증된 지방산 휘발성분 원자료와 다릅니다. 정규화 CSV를 업로드하세요.")
+        return validate_profile(default_profile)
+    raise ValueError("휘발성분 프로필은 CSV 또는 검증된 PDF를 사용하세요.")
+
+
+def replace_active_settings(
+    standards: pd.DataFrame,
+    profile: pd.DataFrame,
+    *,
+    quality_threshold: float | None = None,
+    fuzzy_matching: bool | None = None,
+) -> None:
+    st.session_state["active_standards"] = validate_standards(standards)
+    st.session_state["active_profile"] = validate_profile(profile)
+    if quality_threshold is not None:
+        st.session_state["quality_threshold"] = float(quality_threshold)
+        st.session_state["analysis_quality_widget"] = float(quality_threshold)
+    if fuzzy_matching is not None:
+        st.session_state["fuzzy_matching"] = bool(fuzzy_matching)
+        st.session_state["analysis_fuzzy_widget"] = bool(fuzzy_matching)
+    for key in ("standard_editor", "profile_editor", "raw_candidate_editor"):
+        st.session_state.pop(key, None)
+
+
+def raw_standard_candidates(upload: object, standards: pd.DataFrame) -> pd.DataFrame:
+    upload.seek(0)
+    hits, _ = parse_masshunter(upload)
+    target_names = {
+        normalize_name(name): int(carbon)
+        for name, carbon in zip(standards["alkane_name"], standards["carbon_number"])
+    }
+    candidates = hits[hits["hit_name"].map(normalize_name).isin(target_names)].copy()
+    if candidates.empty:
+        return candidates
+    candidates["carbon_number"] = candidates["hit_name"].map(
+        lambda value: target_names[normalize_name(value)]
+    )
+    confirmed = standards[["carbon_number", "rt_min"]].rename(columns={"rt_min": "confirmed_rt"})
+    candidates = candidates.merge(confirmed, on="carbon_number", how="left")
+    candidates["rt_difference"] = (candidates["rt_min"] - candidates["confirmed_rt"]).abs()
+    columns = [
+        "carbon_number", "hit_name", "rt_min", "quality", "hit_number",
+        "compound_number", "confirmed_rt", "rt_difference",
+    ]
+    return candidates[columns].sort_values(
+        ["carbon_number", "rt_difference", "quality"],
+        ascending=[True, True, False],
+    )
+
+
+def settings_page(config: dict, default_standards: pd.DataFrame, default_profile: pd.DataFrame) -> None:
+    st.subheader("기준 데이터 설정")
+    st.caption("표를 직접 편집하거나 파일을 불러올 수 있습니다. 적용한 설정은 분석 화면에 즉시 반영됩니다.")
+
+    st.markdown("### 전체 설정 저장·복원")
+    bundle_left, bundle_middle, bundle_right = st.columns([1.4, .8, .8])
+    with bundle_left:
+        bundle_upload = st.file_uploader(
+            "저장된 설정 파일 불러오기",
+            type=["json"],
+            key="settings_bundle_upload",
+            help="이 앱에서 내려받은 gcms_ri_settings.json 파일을 선택하세요.",
+        )
+    with bundle_middle:
+        st.write("")
+        st.write("")
+        if st.button("설정 파일 적용", use_container_width=True, disabled=bundle_upload is None):
+            try:
+                bundle_upload.seek(0)
+                standards, profile, analysis = settings_from_json(bundle_upload.read())
+                replace_active_settings(
+                    standards,
+                    profile,
+                    quality_threshold=analysis["quality_threshold"],
+                    fuzzy_matching=analysis["fuzzy_matching"],
+                )
+                st.rerun()
+            except Exception as exc:
+                st.error(f"설정 파일을 적용하지 못했습니다: {exc}")
+    standards, profile = active_reference_data()
+    with bundle_right:
+        st.write("")
+        st.write("")
+        st.download_button(
+            "현재 설정 파일 저장",
+            settings_to_json_bytes(
+                standards,
+                profile,
+                quality_threshold=st.session_state["quality_threshold"],
+                fuzzy_matching=st.session_state["fuzzy_matching"],
+            ),
+            "gcms_ri_settings.json",
+            "application/json",
+            use_container_width=True,
+        )
+
+    reset_col, status_col = st.columns([.8, 2.2])
+    with reset_col:
+        if st.button("내장 기본값으로 초기화", use_container_width=True):
+            replace_active_settings(
+                default_standards,
+                default_profile,
+                quality_threshold=float(config["filter"]["quality_threshold"]),
+                fuzzy_matching=False,
+            )
+            st.rerun()
+    with status_col:
+        st.info(
+            f"현재 적용값: Standard RT {len(standards)}행 · 프로필 {len(profile)}행 · "
+            f"Quality {st.session_state['quality_threshold']:g}"
+        )
+
+    with st.expander("분석 기본 설정 수기 변경"):
+        settings_quality = st.number_input(
+            "Quality 기준",
+            min_value=0.0,
+            max_value=100.0,
+            value=float(st.session_state["quality_threshold"]),
+            step=1.0,
+            key="settings_quality_widget",
+        )
+        settings_fuzzy = st.checkbox(
+            "유사 이름 매칭 사용",
+            value=bool(st.session_state["fuzzy_matching"]),
+            key="settings_fuzzy_widget",
+        )
+        if st.button("분석 설정 적용", use_container_width=True):
+            replace_active_settings(
+                standards,
+                profile,
+                quality_threshold=settings_quality,
+                fuzzy_matching=settings_fuzzy,
+            )
+            st.rerun()
+
+    standard_tab, profile_tab = st.tabs([
+        f"Standard RT ({len(standards)}행)",
+        f"휘발성분 프로필 ({len(profile)}행)",
+    ])
+    try:
+        with standard_tab:
+            st.markdown("#### 파일에서 가져오기")
+            standard_upload = st.file_uploader(
+                "Standard RT 파일",
+                type=["csv", "xlsx", "xls"],
+                key="standard_rt_upload",
+                help="확정표에는 carbon_number, alkane_name, ri, rt_min 열이 필요합니다.",
+            )
+            if standard_upload is not None and standard_upload.name.lower().endswith((".csv", ".xlsx")):
+                if st.button("업로드한 Standard RT 적용", use_container_width=True):
+                    new_standards = read_confirmed_standard(standard_upload)
+                    replace_active_settings(new_standards, profile)
+                    st.rerun()
+            if standard_upload is not None and standard_upload.name.lower().endswith(".xls"):
+                st.warning(
+                    "같은 물질의 RT 후보가 여러 개일 수 있습니다. 사용할 후보의 '사용' 칸을 체크한 뒤 "
+                    "'선택한 RT로 Standard 교체'를 누르세요. 물질별로 하나만 선택할 수 있습니다."
+                )
+                candidates = raw_standard_candidates(standard_upload, standards)
+                if candidates.empty:
+                    st.info("현재 Standard 물질과 일치하는 RT 후보를 찾지 못했습니다.")
+                else:
+                    selectable = candidates.copy()
+                    selectable.insert(0, "selected", False)
+                    selected_candidates = st.data_editor(
+                        selectable,
+                        use_container_width=True,
+                        hide_index=True,
+                        key="raw_candidate_editor",
+                        disabled=[column for column in selectable.columns if column != "selected"],
+                        column_config={
+                            "selected": st.column_config.CheckboxColumn(
+                                "사용", help="물질별로 RT 하나만 선택하세요."
+                            ),
+                            "carbon_number": st.column_config.NumberColumn("탄소 수", format="C%d"),
+                            "rt_min": st.column_config.NumberColumn("후보 RT", format="%.4f"),
+                            "confirmed_rt": st.column_config.NumberColumn("기존 RT", format="%.4f"),
+                            "rt_difference": st.column_config.NumberColumn("차이", format="%.4f"),
+                        },
+                    )
+                    if st.button("선택한 RT로 Standard 교체", type="primary", use_container_width=True):
+                        updated_standards = apply_selected_candidate_rts(standards, selected_candidates)
+                        replace_active_settings(updated_standards, profile)
+                        st.rerun()
+
+            st.markdown("#### 표에서 직접 수정")
+            edited_standards = st.data_editor(
+                standards,
+                num_rows="dynamic",
+                use_container_width=True,
+                hide_index=True,
+                key="standard_editor",
+                column_config={
+                    "carbon_number": st.column_config.NumberColumn("탄소 수", step=1),
+                    "alkane_name": st.column_config.TextColumn("알케인 이름"),
+                    "ri": st.column_config.NumberColumn("RI"),
+                    "rt_min": st.column_config.NumberColumn("RT (min)", format="%.4f"),
+                },
+            )
+            if st.button("수기 변경 Standard RT 적용", type="primary", use_container_width=True):
+                replace_active_settings(edited_standards, profile)
+                st.rerun()
+
+        with profile_tab:
+            st.markdown("#### 파일에서 가져오기")
+            profile_upload = st.file_uploader(
+                "휘발성분 프로필 파일",
+                type=["csv", "pdf"],
+                key="profile_upload",
+                help="CSV에는 canonical_name, parent_fatty_acid 열이 필요합니다.",
+            )
+            if st.button("업로드한 프로필 적용", use_container_width=True, disabled=profile_upload is None):
+                new_profile = read_profile(profile_upload, default_profile)
+                replace_active_settings(standards, new_profile)
+                st.rerun()
+
+            st.markdown("#### 표에서 직접 수정")
+            edited_profile = st.data_editor(
+                profile,
+                num_rows="dynamic",
+                use_container_width=True,
+                hide_index=True,
+                key="profile_editor",
+            )
+            if st.button("수기 변경 프로필 적용", type="primary", use_container_width=True):
+                replace_active_settings(standards, edited_profile)
+                st.rerun()
+    except Exception as exc:
+        st.error(f"설정을 적용하지 못했습니다: {exc}")
+
+
+def nist_search_tab(result: PipelineResult) -> None:
+    st.markdown("""<div class="nist-card"><b>NIST Chemistry WebBook GC/RI 비교</b><br>
+    계산된 RI와 NIST의 컬럼 종류, 고정상(active phase), 온도 프로그램이 비슷한 문헌값을 비교하세요.
+    실험 조건이 다르면 RI가 달라질 수 있으므로 숫자만 단독 비교하지 않는 것이 중요합니다.</div>""", unsafe_allow_html=True)
+    selected = result.selected_hits.drop_duplicates(subset=["canonical_name", "cas_number"]).copy()
+    names = selected["canonical_name"].dropna().astype(str).tolist()
+    if names:
+        compound = st.selectbox("분석 결과에서 물질 선택", names)
+        row = selected[selected["canonical_name"].astype(str) == compound].iloc[0]
+        c1, c2, c3 = st.columns([1, 1, 1.2])
+        c1.metric("내 계산 RI", "-" if pd.isna(row["ri"]) else row["ri"])
+        c2.metric("RT (min)", row["rt_min"])
+        with c3:
+            st.write("NIST GC 데이터")
+            st.link_button("선택 물질의 NIST RI 열기 ↗", row["nist_gc_url"], use_container_width=True)
+    st.divider()
+    manual_name = st.text_input("다른 물질 이름으로 검색", placeholder="예: Hexanal, 2-Octenal")
+    left, right = st.columns(2)
+    with left:
+        if manual_name.strip():
+            st.link_button("이름으로 NIST GC 검색 ↗", nist_gc_url("", manual_name.strip()), use_container_width=True)
+        else:
+            st.button("이름으로 NIST GC 검색 ↗", disabled=True, use_container_width=True)
+    with right:
+        st.link_button("NIST 상세 이름 검색 페이지 ↗", "https://webbook.nist.gov/chemistry/name-ser/", use_container_width=True)
+    st.caption("NIST 페이지에서는 Gas Chromatography 표에서 temperature ramp/isothermal, active phase, 길이·내경·막 두께를 현재 실험 조건과 함께 비교하세요.")
+    st.dataframe(
+        selected[["canonical_name", "cas_number", "rt_min", "ri", "ri_status", "nist_gc_url"]],
+        use_container_width=True,
+        hide_index=True,
+        column_config={"nist_gc_url": st.column_config.LinkColumn("NIST RI", display_text="열기 ↗")},
+    )
+
+
+def summary_view(frame: pd.DataFrame) -> pd.DataFrame:
+    """요약 화면에서 분석 우선순위에 맞춘 열만 반환한다."""
+    priority = [
+        "rt_min", "canonical_name", "quality", "ri", "area",
+        "hit_name_original", "cas_number", "profile_match", "parent_fatty_acid",
+        "inclusion_reason", "ri_status", "lower_alkane", "upper_alkane",
+        "lower_rt", "upper_rt", "nist_gc_url", "hit_number",
+        "selected_for_peak_summary",
+    ]
+    return frame[[column for column in priority if column in frame.columns]].copy()
+
+
+def analysis_page(config: dict, standards: pd.DataFrame, profile: pd.DataFrame) -> None:
+    with st.sidebar:
+        st.markdown("### 분석 입력")
+        threshold = st.number_input(
+            "Quality 기준",
+            min_value=0.0,
+            max_value=100.0,
+            value=float(st.session_state["quality_threshold"]),
+            step=1.0,
+            key="analysis_quality_widget",
+        )
+        fuzzy = st.checkbox(
+            "유사 이름 매칭 사용",
+            value=bool(st.session_state["fuzzy_matching"]),
+            key="analysis_fuzzy_widget",
+            help="오탐 가능성이 있어 기본값은 꺼짐입니다.",
+        )
+        st.session_state["quality_threshold"] = float(threshold)
+        st.session_state["fuzzy_matching"] = bool(fuzzy)
+        sample = st.file_uploader(
+            "시료 결과 (.xls/.xlsx/.csv)",
+            type=["xls", "xlsx", "csv"],
+            key="sample_upload",
+        )
+        st.caption(f"Standard RT: {len(standards)}행 · 프로필: {len(profile)}행")
+    if sample is None:
+        st.info("왼쪽에서 MassHunter 시료 결과 파일을 업로드하세요.")
+        st.markdown("**처리 흐름:** 업로드 → 후보 선별 → RI 계산 → NIST 비교 → CSV/XLSX 다운로드")
+        st.dataframe(standards[["alkane_name", "ri", "rt_min"]], use_container_width=True, hide_index=True)
+        return
+    try:
+        hits, metadata = parse_masshunter(sample)
+        result = run_pipeline(
+            hits,
+            profile,
+            standards,
+            sample_name=metadata.get("sample_name", sample.name),
+            quality_threshold=threshold,
+            fuzzy=fuzzy,
+            allow_extrapolation=bool(config["ri"]["allow_extrapolation"]),
+            round_digits=int(config["ri"]["round_digits"]),
+            exact_tolerance=float(config["ri"]["exact_standard_tolerance_min"]),
+        )
+    except Exception as exc:
+        st.error(f"분석을 완료하지 못했습니다: {exc}")
+        return
+    labels = {
+        "total_peaks": "전체 peak", "total_hits": "전체 hits", "profile_match": "Profile 일치",
+        "quality_pass": "Quality 통과", "both": "BOTH", "ri_ok": "RI 성공", "out_of_range": "범위 밖",
+    }
+    columns = st.columns(len(labels))
+    for column, (key, label) in zip(columns, labels.items()):
+        column.metric(label, result.metrics[key])
+    tabs = st.tabs([
+        "요약", "Peak summary", "Selected hits", "Rejected hits",
+        "NIST RI 검색", "Standards", "Profile",
+    ])
+    frames = [summary_view(result.peak_summary), result.peak_summary, result.selected_hits, result.rejected_hits]
+    for tab, frame in zip(tabs[:4], frames):
+        with tab:
+            st.dataframe(
+                frame,
+                use_container_width=True,
+                hide_index=True,
+                column_config={"nist_gc_url": st.column_config.LinkColumn("NIST RI", display_text="열기 ↗")},
+            )
+    with tabs[4]:
+        nist_search_tab(result)
+    with tabs[5]:
+        st.dataframe(standards, use_container_width=True, hide_index=True)
+    with tabs[6]:
+        st.dataframe(profile, use_container_width=True, hide_index=True)
+    left, right = st.columns(2)
+    left.download_button(
+        "Selected hits CSV 다운로드",
+        dataframe_to_csv_bytes(result.selected_hits),
+        "selected_hits.csv",
+        "text/csv",
+        use_container_width=True,
+    )
+    right.download_button(
+        "전체 결과 XLSX 다운로드",
+        results_to_xlsx_bytes(result, standards, profile),
+        "gcms_ri_results.xlsx",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        use_container_width=True,
+    )
+
+
+def main() -> None:
+    st.set_page_config(page_title="GC-MS RI Studio", page_icon="🧪", layout="wide")
+    apply_theme()
+    config, default_standards, default_profile = load_defaults()
+    initialize_session(config, default_standards, default_profile)
+    st.markdown("""<div class="hero"><h1>GC-MS RI Studio</h1><p>MassHunter hit 선별 · 지방산 산화 프로필 매칭 · RI 계산 · NIST 조건 비교</p></div>""", unsafe_allow_html=True)
+    with st.sidebar:
+        st.markdown("## GC-MS RI Studio")
+        page = st.radio("화면 선택", ["분석", "기준 설정"], horizontal=True)
+        st.divider()
+    if page == "기준 설정":
+        settings_page(config, default_standards, default_profile)
+        return
+    standards, profile = active_reference_data()
+    analysis_page(config, standards, profile)
+
+
+if __name__ == "__main__":
+    main()

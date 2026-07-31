@@ -1,0 +1,14 @@
+﻿carbon_number,alkane_name,ri,rt_min,source,confirmed
+6,n-Hexane,600,2.274,GC_MS RI 계산기 및 STD.xlsx / STD_RI sheet,True
+7,Heptane,700,3.085,GC_MS RI 계산기 및 STD.xlsx / STD_RI sheet,True
+8,Octane,800,4.747,GC_MS RI 계산기 및 STD.xlsx / STD_RI sheet,True
+9,Nonane,900,7.457,GC_MS RI 계산기 및 STD.xlsx / STD_RI sheet,True
+10,Decane,1000,10.969,GC_MS RI 계산기 및 STD.xlsx / STD_RI sheet,True
+11,Undecane,1100,14.759,GC_MS RI 계산기 및 STD.xlsx / STD_RI sheet,True
+12,Dodecane,1200,18.425,GC_MS RI 계산기 및 STD.xlsx / STD_RI sheet,True
+13,Tridecane,1300,21.007,GC_MS RI 계산기 및 STD.xlsx / STD_RI sheet,True
+14,Tetradecane,1400,22.151,GC_MS RI 계산기 및 STD.xlsx / STD_RI sheet,True
+15,Pentadecane,1500,22.997,GC_MS RI 계산기 및 STD.xlsx / STD_RI sheet,True
+16,Hexadecane,1600,23.818,GC_MS RI 계산기 및 STD.xlsx / STD_RI sheet,True
+17,Heptadecane,1700,24.696,GC_MS RI 계산기 및 STD.xlsx / STD_RI sheet,True
+18,Octadecane,1800,25.913,GC_MS RI 계산기 및 STD.xlsx / STD_RI sheet,True

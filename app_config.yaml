@@ -1,0 +1,20 @@
+app:
+  title: "GC-MS Fatty Acid Oxidation Volatile Filter & RI Calculator"
+  language: "ko"
+filter:
+  quality_threshold: 80
+  candidate_mode: "all_qualifying_hits"
+  peak_summary_rule: "highest_quality_per_inclusion_reason"
+matching:
+  fuzzy_matching_enabled: false
+ri:
+  method: "van_den_dool_kratz_temperature_programmed"
+  allow_extrapolation: false
+  round_digits: 1
+  exact_standard_tolerance_min: 0.003
+nist:
+  mode: "direct_link_only"
+  mask: 2000
+output:
+  export_csv: true
+  export_xlsx: true

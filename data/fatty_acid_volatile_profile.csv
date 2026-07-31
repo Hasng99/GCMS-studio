@@ -1,0 +1,39 @@
+﻿parent_fatty_acid,fatty_acid_notation,hydroperoxide,source_name,canonical_name,aliases_semicolon,flavor_or_note
+Oleic acid,18:1,,Heptanal,Heptanal,,
+Oleic acid,18:1,11-OOH,Octanal,Octanal,,
+Oleic acid,18:1,11-OOH,2-Octenal,2-Octenal,,
+Oleic acid,18:1,9-OOH,Nonanal,Nonanal,,
+Oleic acid,18:1,9-OOH,2-Nonenal,2-Nonenal,,
+Oleic acid,18:1,8-OOH,Decanal,Decanal,,
+Oleic acid,18:1,9-OOH,2-Decenal,2-Decenal,,
+Oleic acid,18:1,,4-Decenal,4-Decenal,,
+Oleic acid,18:1,,"(2,4)-Decadienal","2,4-Decadienal",,
+Oleic acid,18:1,,Undecanal,Undecanal,,
+Oleic acid,18:1,8-OOH,2-Undecenal,2-Undecenal,,
+Linoleic acid,18:2,10-OOH,2-Propenal,Acrolein,Acrolein;2-Propenal,
+Linoleic acid,18:2,"9,10-OOH",Pentanal,Pentanal,,
+Linoleic acid,18:2,"9,13-OOH",Hexanal,Hexanal,,green
+Linoleic acid,18:2,12-OOH,2-Hexenal,2-Hexenal,,
+Linoleic acid,18:2,12-OOH,2-Heptenal,2-Heptenal,,
+Linoleic acid,18:2,"9,13-OOH",2-Octenal,2-Octenal,,
+Linoleic acid,18:2,9-OOH,3-Nonenal,3-Nonenal,,
+Linoleic acid,18:2,12-OOH,"(2,4)-Heptadienal","2,4-Heptadienal",,
+Linoleic acid,18:2,9-OOH,"(2,4)-Octadienal","2,4-Octadienal",,
+Linoleic acid,18:2,9-OOH,"(2,4)-Nonadienal","2,4-Nonadienal",,
+Linoleic acid,18:2,"9,13-OOH","(2,4)-Decadienal","2,4-Decadienal",,"fatty, waxy"
+Linoleic acid,18:2,13-OOH,"4,5-Epoxy-2-decenal","4,5-Epoxy-2-decenal",,
+Linolenic acid,18:3,,Acetaldehyde,Acetaldehyde,,
+Linolenic acid,18:3,,2-Acrolein,Acrolein,Acrolein;2-Propenal;2-Acrolein,source wording retained
+Linolenic acid,18:3,16-OOH,Propanal,Propanal,,
+Linolenic acid,18:3,,2-Butenal,2-Butenal,,
+Linolenic acid,18:3,,2-Pentenal,2-Pentenal,,
+Linolenic acid,18:3,12-OOH,3-Hexenal,3-Hexenal,,green bean
+Linolenic acid,18:3,,Hexanal,Hexanal,,
+Linolenic acid,18:3,,Furfural,Furfural,,
+Linolenic acid,18:3,,2-Hexenal,2-Hexenal,,
+Linolenic acid,18:3,,"2,4-Hexadienal","2,4-Hexadienal",,
+Linolenic acid,18:3,,"2,4-Heptadienal","2,4-Heptadienal",,
+Linolenic acid,18:3,,Nonanal,Nonanal,,
+Linolenic acid,18:3,,"3,6-Nonadienal","3,6-Nonadienal",,soapy
+Linolenic acid,18:3,,Decanal,Decanal,,
+Linolenic acid,18:3,,"2,4,7-Decatrienal","2,4,7-Decatrienal",,"painty, fishy"
