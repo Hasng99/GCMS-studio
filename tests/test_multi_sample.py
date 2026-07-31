@@ -6,6 +6,7 @@ from src.multi_sample import (
     build_replicate_area_comparison,
     build_sample_presence_comparison,
     detected_column,
+    replicate_area_view,
     unique_sample_labels,
 )
 
@@ -53,6 +54,36 @@ def test_replicate_comparison_chooses_lowest_area_cv_valid_combination() -> None
     assert row["area_mean"] == 105
     assert row["area_std"] == pytest.approx(7.0710678)
     assert row["sample_count"] == 2
+
+
+def test_replicate_area_view_keeps_requested_columns_in_order() -> None:
+    comparison = pd.DataFrame([{
+        "canonical_name": "Hexanal",
+        "sample_count": 2,
+        "detected_samples": "rep-1, rep-2",
+        "mean_rt": 3.04,
+        "rt_range": 0.08,
+        "mean_ri": 700,
+        "ri_range": 20,
+        area_column("rep-1"): 100,
+        area_column("rep-2"): 110,
+        "area_mean": 105,
+        "area_std": 7.07,
+        "area_cv_percent": 6.73,
+    }])
+
+    view = replicate_area_view(comparison)
+
+    assert view.columns.tolist() == [
+        "mean_rt",
+        "canonical_name",
+        "mean_ri",
+        "sample_count",
+        "area_mean",
+        area_column("rep-1"),
+        area_column("rep-2"),
+        "detected_samples",
+    ]
 
 
 def test_replicate_comparison_requires_rt_and_ri_tolerances() -> None:

@@ -22,6 +22,7 @@ from src.multi_sample import (
     RT_PREFIX,
     build_replicate_area_comparison,
     build_sample_presence_comparison,
+    replicate_area_view,
     unique_sample_labels,
 )
 from src.parsers import parse_masshunter
@@ -82,6 +83,19 @@ def apply_theme() -> None:
     [data-testid="stSidebar"] [data-testid="stFileUploaderFile"]{background:#fff}
     [data-testid="stSidebar"] [data-testid="stFileUploaderFile"] *{color:#24324a!important}
     [data-testid="stSidebar"] button{border-color:#cbd5e1}
+    .st-key-analysis_start button{
+        color:#fff!important;border:0!important;font-weight:700!important;
+        background:linear-gradient(120deg,#15b8a6,#2563eb 55%,#7c3aed)!important;
+        box-shadow:0 8px 20px rgba(37,99,235,.28)!important;
+        transition:transform .16s ease,box-shadow .16s ease,filter .16s ease!important
+    }
+    .st-key-analysis_start button:hover{
+        transform:translateY(-1px);filter:brightness(1.06);
+        box-shadow:0 11px 24px rgba(37,99,235,.36)!important
+    }
+    .st-key-analysis_start button:disabled{
+        transform:none;filter:saturate(.25);box-shadow:none!important;opacity:.55
+    }
     .block-container{max-width:1500px;padding-top:1.5rem}
     .hero{padding:2rem 2.2rem;border-radius:22px;color:white;background:linear-gradient(120deg,#10233f,#126e82);box-shadow:0 14px 38px rgba(16,35,63,.18);margin-bottom:1.25rem}
     .hero h1{margin:0 0 .5rem;font-size:2rem;color:white}.hero p{margin:0;color:#d9f3f5;font-size:1.02rem}
@@ -436,6 +450,37 @@ def result_table_view(frame: pd.DataFrame) -> pd.DataFrame:
     return frame.drop(columns=["sample_name"], errors="ignore").copy()
 
 
+def analysis_input_signature(
+    uploads: list[object],
+    *,
+    threshold: float,
+    fuzzy: bool,
+    exclude_siloxane: bool,
+    relationship: str,
+    standards: pd.DataFrame,
+    profile: pd.DataFrame,
+) -> str:
+    """파일과 분석 설정이 마지막 실행 이후 바뀌었는지 확인한다."""
+    digest = hashlib.sha256()
+    for upload in uploads:
+        payload = upload.getvalue()
+        digest.update(str(upload.name).encode("utf-8"))
+        digest.update(len(payload).to_bytes(8, "big"))
+        digest.update(hashlib.sha256(payload).digest())
+    digest.update(
+        repr((
+            float(threshold),
+            bool(fuzzy),
+            bool(exclude_siloxane),
+            relationship,
+        )).encode("utf-8")
+    )
+    for frame in (standards, profile):
+        digest.update(repr(tuple(frame.columns)).encode("utf-8"))
+        digest.update(pd.util.hash_pandas_object(frame, index=True).values.tobytes())
+    return digest.hexdigest()
+
+
 def comparison_column_config(frame: pd.DataFrame) -> dict[str, object]:
     config: dict[str, object] = {
         "canonical_name": "Compound name",
@@ -541,7 +586,9 @@ def render_multi_results(
     }
     same_sample = relationship == "동일 샘플 내 반복시료"
     if same_sample:
-        comparison = build_replicate_area_comparison(summary_frames)
+        comparison = replicate_area_view(
+            build_replicate_area_comparison(summary_frames)
+        )
         comparison_label = "Area 비교"
         comparison_sheet = "area_comparison"
     else:
@@ -560,7 +607,7 @@ def render_multi_results(
             st.caption(
                 "같은 Compound name 중 RT 범위가 0.1분 이내이고 RI 범위가 30 이내인 조합을 "
                 "동일 물질로 봅니다. 가장 많은 반복파일을 포함한 뒤 Area CV가 가장 작은 조합의 "
-                "모든 Area, 평균, 표준편차를 표시합니다."
+                "Mean RT, Mean RI, 모든 샘플별 Area와 Area 평균을 표시합니다."
             )
         else:
             st.caption(
@@ -667,44 +714,82 @@ def analysis_page(config: dict, standards: pd.DataFrame, profile: pd.DataFrame) 
                 ["동일 샘플 내 반복시료", "서로 다른 샘플"],
                 key="multi_file_relationship",
             )
+        start_clicked = st.button(
+            "Start",
+            key="analysis_start",
+            type="primary",
+            use_container_width=True,
+            disabled=not sample_uploads,
+        )
         st.caption(f"Standard RT: {len(standards)}행 · 프로필: {len(profile)}행")
     if not sample_uploads:
+        st.session_state.pop("analysis_results", None)
+        st.session_state.pop("analysis_signature", None)
+        st.session_state.pop("analysis_relationship", None)
         st.info("왼쪽에서 MassHunter 시료 결과 파일을 하나 이상 업로드하세요.")
-        st.markdown("**처리 흐름:** 업로드 → 후보 선별 → RI 계산 → NIST 비교 → CSV/XLSX 다운로드")
+        st.markdown("**처리 흐름:** 업로드 → Start → 후보 선별 → RI 계산 → NIST 비교 → CSV/XLSX 다운로드")
         st.dataframe(standards[["alkane_name", "ri", "rt_min"]], use_container_width=True, hide_index=True)
         return
-    try:
-        with st.spinner("loading …"):
-            parsed_uploads: list[tuple[pd.DataFrame, str]] = []
-            for upload in sample_uploads:
-                try:
-                    hits, metadata = parse_masshunter(upload)
-                except Exception as exc:
-                    raise ValueError(f"{upload.name}: {exc}") from exc
-                parsed_uploads.append((
-                    hits,
-                    str(metadata.get("sample_name") or Path(upload.name).stem),
-                ))
-            sample_labels = unique_sample_labels([
-                sample_name for _, sample_name in parsed_uploads
-            ])
-            results: dict[str, PipelineResult] = {}
-            for (hits, _), sample_name in zip(parsed_uploads, sample_labels):
-                results[sample_name] = run_pipeline(
-                    hits,
-                    profile,
-                    standards,
-                    sample_name=sample_name,
-                    quality_threshold=threshold,
-                    fuzzy=fuzzy,
-                    exclude_siloxane=exclude_siloxane,
-                    allow_extrapolation=bool(config["ri"]["allow_extrapolation"]),
-                    round_digits=int(config["ri"]["round_digits"]),
-                    exact_tolerance=float(config["ri"]["exact_standard_tolerance_min"]),
-                )
-    except Exception as exc:
-        st.error(f"분석을 완료하지 못했습니다: {exc}")
+
+    input_signature = analysis_input_signature(
+        sample_uploads,
+        threshold=threshold,
+        fuzzy=fuzzy,
+        exclude_siloxane=exclude_siloxane,
+        relationship=relationship,
+        standards=standards,
+        profile=profile,
+    )
+    if start_clicked:
+        try:
+            with st.spinner("loading …"):
+                parsed_uploads: list[tuple[pd.DataFrame, str]] = []
+                for upload in sample_uploads:
+                    try:
+                        hits, metadata = parse_masshunter(upload)
+                    except Exception as exc:
+                        raise ValueError(f"{upload.name}: {exc}") from exc
+                    parsed_uploads.append((
+                        hits,
+                        str(metadata.get("sample_name") or Path(upload.name).stem),
+                    ))
+                sample_labels = unique_sample_labels([
+                    sample_name for _, sample_name in parsed_uploads
+                ])
+                results: dict[str, PipelineResult] = {}
+                for (hits, _), sample_name in zip(parsed_uploads, sample_labels):
+                    results[sample_name] = run_pipeline(
+                        hits,
+                        profile,
+                        standards,
+                        sample_name=sample_name,
+                        quality_threshold=threshold,
+                        fuzzy=fuzzy,
+                        exclude_siloxane=exclude_siloxane,
+                        allow_extrapolation=bool(config["ri"]["allow_extrapolation"]),
+                        round_digits=int(config["ri"]["round_digits"]),
+                        exact_tolerance=float(config["ri"]["exact_standard_tolerance_min"]),
+                    )
+            st.session_state["analysis_results"] = results
+            st.session_state["analysis_signature"] = input_signature
+            st.session_state["analysis_relationship"] = relationship
+        except Exception as exc:
+            st.session_state.pop("analysis_results", None)
+            st.session_state.pop("analysis_signature", None)
+            st.session_state.pop("analysis_relationship", None)
+            st.error(f"분석을 완료하지 못했습니다: {exc}")
+            return
+
+    if st.session_state.get("analysis_signature") != input_signature:
+        st.info("파일과 분석 옵션을 확인한 뒤 왼쪽의 Start 버튼을 눌러주세요.")
         return
+    results = st.session_state.get("analysis_results")
+    if not results:
+        st.info("왼쪽의 Start 버튼을 눌러 분석을 시작하세요.")
+        return
+    relationship = str(
+        st.session_state.get("analysis_relationship", relationship)
+    )
     if len(results) == 1:
         sample_name, result = next(iter(results.items()))
         render_single_result(result, sample_name, standards, profile)

@@ -200,6 +200,23 @@ def build_replicate_area_comparison(
     )
 
 
+def replicate_area_view(frame: pd.DataFrame) -> pd.DataFrame:
+    """반복시료 Area 비교 화면에 필요한 열만 요청 순서대로 반환한다."""
+    area_columns = [
+        column for column in frame.columns if column.startswith(AREA_PREFIX)
+    ]
+    columns = [
+        "mean_rt",
+        "canonical_name",
+        "mean_ri",
+        "sample_count",
+        "area_mean",
+        *area_columns,
+        "detected_samples",
+    ]
+    return frame[[column for column in columns if column in frame.columns]].copy()
+
+
 def build_sample_presence_comparison(
     frames: Mapping[str, pd.DataFrame],
 ) -> pd.DataFrame:

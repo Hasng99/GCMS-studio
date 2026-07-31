@@ -1,6 +1,12 @@
 import pandas as pd
 
-from app import APP_NAME, RESULT_COLUMN_LABELS, result_table_view, summary_view
+from app import (
+    APP_NAME,
+    RESULT_COLUMN_LABELS,
+    analysis_input_signature,
+    result_table_view,
+    summary_view,
+)
 
 from src.pipeline import run_pipeline
 
@@ -80,6 +86,43 @@ def test_result_table_view_hides_repeated_sample_name() -> None:
     displayed = result_table_view(result.selected_hits)
     assert "sample_name" not in displayed.columns
     assert "sample_name" in result.selected_hits.columns
+
+
+def test_analysis_signature_changes_with_file_or_option() -> None:
+    class Upload:
+        def __init__(self, name: str, payload: bytes) -> None:
+            self.name = name
+            self._payload = payload
+
+        def getvalue(self) -> bytes:
+            return self._payload
+
+    _, profile, standards = _inputs()
+    arguments = {
+        "threshold": 80,
+        "fuzzy": False,
+        "exclude_siloxane": False,
+        "relationship": "단일 시료",
+        "standards": standards,
+        "profile": profile,
+    }
+    original = analysis_input_signature(
+        [Upload("sample.csv", b"first")],
+        **arguments,
+    )
+
+    assert original == analysis_input_signature(
+        [Upload("sample.csv", b"first")],
+        **arguments,
+    )
+    assert original != analysis_input_signature(
+        [Upload("sample.csv", b"second")],
+        **arguments,
+    )
+    assert original != analysis_input_signature(
+        [Upload("sample.csv", b"first")],
+        **{**arguments, "exclude_siloxane": True},
+    )
 
 
 def test_result_column_labels_match_ui_requirements() -> None:
