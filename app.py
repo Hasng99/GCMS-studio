@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from html import escape
 from pathlib import Path
 import hashlib
 
@@ -49,6 +50,15 @@ def apply_theme() -> None:
     .stApp{background:#f5f7fb;color:#172033}
     [data-testid="stHeader"]{background:rgba(245,247,251,.9)}
     [data-testid="stStatusWidget"]{display:none!important}
+    [data-testid="stSpinner"]{
+        position:fixed!important;inset:0!important;z-index:999999!important;
+        display:flex!important;align-items:center!important;justify-content:center!important;
+        padding:0!important;background:rgba(245,247,251,.78);backdrop-filter:blur(2px)
+    }
+    [data-testid="stSpinner"]>div{
+        width:auto!important;padding:1rem 1.35rem!important;border:1px solid #d7dfec;
+        border-radius:14px;background:#fff;box-shadow:0 12px 34px rgba(15,23,42,.16)
+    }
     [data-testid="stSidebar"]{background:linear-gradient(180deg,#10233f,#22365f)}
     [data-testid="stSidebar"] h1,[data-testid="stSidebar"] h2,
     [data-testid="stSidebar"] h3,[data-testid="stSidebar"] label,
@@ -64,6 +74,9 @@ def apply_theme() -> None:
     .hero h1{margin:0 0 .5rem;font-size:2rem;color:white}.hero p{margin:0;color:#d9f3f5;font-size:1.02rem}
     [data-testid="stMetric"]{background:#fff;border:1px solid #e5eaf1;padding:1rem;border-radius:16px;box-shadow:0 5px 18px rgba(15,23,42,.05)}
     .stTabs [data-baseweb="tab-list"]{gap:.3rem}.stTabs [data-baseweb="tab"]{background:#fff;border-radius:10px 10px 0 0;padding:.5rem 1rem}
+    .sample-info{display:flex;align-items:center;justify-content:flex-end;gap:.55rem;margin:.85rem .25rem -.15rem;color:#475569}
+    .sample-info span{font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+    .sample-info strong{color:#172033;font-size:.95rem}
     .status-card{background:#fff;border:1px solid #e5eaf1;border-radius:14px;padding:1rem 1.2rem;margin:.35rem 0}
     .nist-card{background:linear-gradient(135deg,#eef8f8,#fff);border:1px solid #c8e7e8;border-radius:16px;padding:1.2rem 1.4rem;margin:.5rem 0 1rem}
     </style>""", unsafe_allow_html=True)
@@ -398,13 +411,15 @@ def result_column_config(frame: pd.DataFrame) -> dict[str, object]:
 def summary_view(frame: pd.DataFrame) -> pd.DataFrame:
     """요약 화면에서 분석 우선순위에 맞춘 열만 반환한다."""
     priority = [
-        "rt_min", "canonical_name", "quality", "ri", "area",
-        "hit_name_original", "cas_number", "profile_match", "parent_fatty_acid",
-        "inclusion_reason", "ri_status", "lower_alkane", "upper_alkane",
-        "lower_rt", "upper_rt", "nist_gc_url", "hit_number",
-        "selected_for_peak_summary",
+        "rt_min", "canonical_name", "quality", "ri", "nist_gc_url",
+        "area", "profile_match", "inclusion_reason", "parent_fatty_acid",
     ]
     return frame[[column for column in priority if column in frame.columns]].copy()
+
+
+def result_table_view(frame: pd.DataFrame) -> pd.DataFrame:
+    """시료명은 표마다 반복하지 않고 별도의 단일 정보로 표시한다."""
+    return frame.drop(columns=["sample_name"], errors="ignore").copy()
 
 
 def analysis_page(config: dict, standards: pd.DataFrame, profile: pd.DataFrame) -> None:
@@ -440,11 +455,12 @@ def analysis_page(config: dict, standards: pd.DataFrame, profile: pd.DataFrame) 
     try:
         with st.spinner("loading …"):
             hits, metadata = parse_masshunter(sample)
+            sample_name = str(metadata.get("sample_name") or Path(sample.name).stem)
             result = run_pipeline(
                 hits,
                 profile,
                 standards,
-                sample_name=metadata.get("sample_name", sample.name),
+                sample_name=sample_name,
                 quality_threshold=threshold,
                 fuzzy=fuzzy,
                 allow_extrapolation=bool(config["ri"]["allow_extrapolation"]),
@@ -461,11 +477,20 @@ def analysis_page(config: dict, standards: pd.DataFrame, profile: pd.DataFrame) 
     columns = st.columns(len(labels))
     for column, (key, label) in zip(columns, labels.items()):
         column.metric(label, result.metrics[key])
+    st.markdown(
+        f'<div class="sample-info"><span>Sample name</span><strong>{escape(sample_name)}</strong></div>',
+        unsafe_allow_html=True,
+    )
     tabs = st.tabs([
         "요약", "Peak summary", "Selected hits", "Rejected hits",
         "NIST RI 검색", "Standards", "Profile",
     ])
-    frames = [summary_view(result.peak_summary), result.peak_summary, result.selected_hits, result.rejected_hits]
+    frames = [
+        summary_view(result.peak_summary),
+        result_table_view(result.peak_summary),
+        result_table_view(result.selected_hits),
+        result_table_view(result.rejected_hits),
+    ]
     for tab, frame in zip(tabs[:4], frames):
         with tab:
             st.dataframe(

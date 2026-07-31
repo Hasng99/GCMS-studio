@@ -1,6 +1,6 @@
 import pandas as pd
 
-from app import APP_NAME, RESULT_COLUMN_LABELS, summary_view
+from app import APP_NAME, RESULT_COLUMN_LABELS, result_table_view, summary_view
 
 from src.pipeline import run_pipeline
 
@@ -42,11 +42,19 @@ def test_both_is_not_duplicated() -> None:
 def test_summary_column_priority_and_hidden_identifiers() -> None:
     result = run_pipeline(*_inputs(), quality_threshold=80)
     summary = summary_view(result.peak_summary)
-    assert summary.columns[:5].tolist() == [
-        "rt_min", "canonical_name", "quality", "ri", "area"
+    assert summary.columns.tolist() == [
+        "rt_min", "canonical_name", "quality", "ri", "nist_gc_url",
+        "area", "profile_match", "inclusion_reason", "parent_fatty_acid",
     ]
     assert "sample_name" not in summary.columns
     assert "compound_number" not in summary.columns
+
+
+def test_result_table_view_hides_repeated_sample_name() -> None:
+    result = run_pipeline(*_inputs(), sample_name="sample-a", quality_threshold=80)
+    displayed = result_table_view(result.selected_hits)
+    assert "sample_name" not in displayed.columns
+    assert "sample_name" in result.selected_hits.columns
 
 
 def test_result_column_labels_match_ui_requirements() -> None:
