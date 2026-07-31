@@ -1,6 +1,6 @@
 # GC-MS RI Studio
 
-MassHunter library hit를 지방산 산화 휘발성분 프로필 또는 Quality 기준으로 선별하고, 확정 n-alkane RT로 RI를 계산하는 Streamlit 웹 앱입니다.
+HS-SPME/GC-MS로 얻어진 휘발성 지방산화생성물 프로필 또는 MassHunter library 기준으로 선별하고, Standard n-alkane RT로 RI를 판별하는 Streamlit 웹 앱입니다.
 
 ## 웹에서 사용
 
@@ -10,9 +10,9 @@ Windows, macOS, 모바일에서 별도 설치 없이 브라우저로 사용할 �
 
 ## 주요 기능
 
-- MassHunter `.xls`, `.xlsx`, `.csv` 시료 결과 업로드
-- `profile match OR quality threshold` 후보 선별
-- Van den Dool–Kratz RI 계산
+- MassHunter 추출 `.xls`, `.xlsx`, `.csv` 파일 업로드
+- Profile match or Quality threshold로 후보 물질 선별
+- Kovats RI 계산
 - NIST Chemistry WebBook GC/RI 바로가기
 - Standard RT와 휘발성분 프로필의 표 직접 편집
 - MassHunter Standard `.xls`의 여러 RT 후보 중 사용할 값 선택
