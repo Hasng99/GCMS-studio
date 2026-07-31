@@ -62,7 +62,7 @@ def test_result_column_labels_match_ui_requirements() -> None:
         "quality": "Quality",
         "profile_match": "Profile match",
         "parent_fatty_acid": "Parent FAs",
-        "inclusion_reason": "",
+        "inclusion_reason": "Supporting",
         "lower_alkane": "Lower alkane",
         "upper_alkane": "Upper alkane",
         "lower_rt": "Lower RT",
