@@ -46,6 +46,23 @@ def test_both_is_not_duplicated() -> None:
     assert len(both) == 1
 
 
+def test_quality_pass_metric_counts_shown_compounds_not_raw_hit_rows() -> None:
+    hits, profile, standards = _inputs()
+    hits.loc[len(hits)] = {
+        "compound_number": 5, "rt_min": 6.0, "hit_number": 1, "hit_name": "Unknown C",
+        "quality": 85, "cas_number": "", "area": 150,
+    }
+    hits.loc[len(hits)] = {
+        "compound_number": 5, "rt_min": 6.0, "hit_number": 2, "hit_name": "Unknown D",
+        "quality": 90, "cas_number": "", "area": 150,
+    }
+    result = run_pipeline(hits, profile, standards, quality_threshold=80)
+    assert result.metrics["quality_pass"] == int(
+        (result.peak_summary["quality"] >= 80).sum()
+    )
+    assert result.metrics["quality_pass"] == 2
+
+
 def test_siloxane_family_can_be_excluded_from_recommendations() -> None:
     hits, profile, standards = _inputs()
     for compound_number, name in enumerate(

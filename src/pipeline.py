@@ -103,7 +103,7 @@ def run_pipeline(
         "total_peaks": int(hits["compound_number"].nunique()),
         "total_hits": int(len(hits)),
         "profile_match": int(all_hits["profile_match"].sum()),
-        "quality_pass": int(all_hits["_quality_pass"].sum()),
+        "quality_pass": int(summary["_quality_pass"].sum()),
         "both": int((all_hits["inclusion_reason"] == "BOTH").sum()),
         "ri_ok": int((selected["ri_status"] == "OK").sum()),
         "out_of_range": int((selected["ri_status"] == "OUT_OF_RANGE").sum()),
