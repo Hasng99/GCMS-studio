@@ -12,11 +12,13 @@ from src.exporters import (
     dataframe_to_csv_bytes,
     multi_results_to_xlsx_bytes,
     results_to_xlsx_bytes,
+    selected_hits_to_xlsx_bytes,
 )
 from src.nist_links import nist_gc_url
 from src.matching import normalize_name
 from src.multi_sample import (
     AREA_PREFIX,
+    DEFAULT_RI_TOLERANCE,
     DETECTED_PREFIX,
     RI_PREFIX,
     RT_PREFIX,
@@ -496,6 +498,7 @@ def comparison_column_config(frame: pd.DataFrame) -> dict[str, object]:
         "area_cv_percent": "Area CV(%)",
         "detection_status": "검출 구분",
         "detected_count": "검출 샘플 수",
+        "quality_flag_samples": "Quality 유의 시료",
     }
     for column in frame.columns:
         if column.startswith(AREA_PREFIX):
@@ -507,6 +510,87 @@ def comparison_column_config(frame: pd.DataFrame) -> dict[str, object]:
         elif column.startswith(RI_PREFIX):
             config[column] = f"RI · {column.removeprefix(RI_PREFIX)}"
     return {column: label for column, label in config.items() if column in frame.columns}
+
+
+QUALITY_FLAG_STYLE = "background-color:#fee2e2;color:#b91c1c;font-weight:600"
+
+
+def style_replicate_comparison(frame: pd.DataFrame):
+    """quality_flag_samples에 기록된 샘플의 Area 칸을 빨간색으로 강조한다.
+
+    st.dataframe의 캔버스 그리드는 Styler의 배경색을 반영하지 않아 실제 DOM으로
+    렌더링되는 st.table과 함께 사용한다. 열 이름은 표시용으로 먼저 바꾸고,
+    강조 대상은 원래 열 순서(위치)로 판단해 이름 변경과 무관하게 동작하도록 한다.
+    """
+    columns = list(frame.columns)
+    area_positions = {
+        position: column.removeprefix(AREA_PREFIX)
+        for position, column in enumerate(columns)
+        if column.startswith(AREA_PREFIX)
+    }
+    flag_position = columns.index("quality_flag_samples") if "quality_flag_samples" in columns else None
+
+    def highlight(row: pd.Series) -> list[str]:
+        raw_flag = row.iloc[flag_position] if flag_position is not None else ""
+        flagged = {name for name in str(raw_flag or "").split(";") if name}
+        styles = [""] * len(row)
+        for position, sample in area_positions.items():
+            if sample in flagged:
+                styles[position] = QUALITY_FLAG_STYLE
+        return styles
+
+    labels = comparison_column_config(frame)
+    numeric_formats = {
+        "mean_rt": "{:.3f}",
+        "mean_ri": "{:.1f}",
+        "area_mean": "{:.1f}",
+        **{column: "{:.1f}" for column in columns if column.startswith(AREA_PREFIX)},
+    }
+    display = frame.rename(columns=labels)
+    return (
+        display.style
+        .apply(highlight, axis=1)
+        .format({labels.get(column, column): fmt for column, fmt in numeric_formats.items()}, na_rep="—")
+        .hide(axis="index")
+    )
+
+
+def render_selected_hits_download(
+    label: str,
+    results_by_sample: dict[str, pd.DataFrame],
+    file_stem: str,
+    widget_key: str,
+) -> None:
+    """Selected hits 결과를 CSV 또는 XLSX 형식을 선택해 다운로드한다.
+
+    XLSX는 샘플별로 시트를 나누고 시트 안에서는 sample_name 열을 생략한다.
+    CSV는 하나의 파일로 합치므로 sample_name 열을 유지한다.
+    """
+    file_format = st.radio(
+        f"{label} 파일 형식",
+        ["CSV", "XLSX"],
+        horizontal=True,
+        key=f"{widget_key}_format",
+    )
+    if file_format == "CSV":
+        combined = pd.concat(list(results_by_sample.values()), ignore_index=True)
+        st.download_button(
+            f"{label} 다운로드",
+            dataframe_to_csv_bytes(combined),
+            f"{file_stem}.csv",
+            "text/csv",
+            use_container_width=True,
+            key=f"{widget_key}_download",
+        )
+    else:
+        st.download_button(
+            f"{label} 다운로드",
+            selected_hits_to_xlsx_bytes(results_by_sample),
+            f"{file_stem}.xlsx",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+            key=f"{widget_key}_download",
+        )
 
 
 def render_metrics(result: PipelineResult) -> None:
@@ -559,13 +643,13 @@ def render_single_result(
     with tabs[6]:
         st.dataframe(profile, use_container_width=True, hide_index=True)
     left, right = st.columns(2)
-    left.download_button(
-        "Selected hits CSV 다운로드",
-        dataframe_to_csv_bytes(result.selected_hits),
-        "selected_hits.csv",
-        "text/csv",
-        use_container_width=True,
-    )
+    with left:
+        render_selected_hits_download(
+            "Selected hits",
+            {sample_name: result.selected_hits},
+            "selected_hits",
+            "single_selected_hits",
+        )
     right.download_button(
         "전체 결과 XLSX 다운로드",
         results_to_xlsx_bytes(result, standards, profile),
@@ -580,15 +664,23 @@ def render_multi_results(
     relationship: str,
     standards: pd.DataFrame,
     profile: pd.DataFrame,
+    *,
+    ri_tolerance: float = DEFAULT_RI_TOLERANCE,
 ) -> None:
     summary_frames = {
         sample_name: result.peak_summary
         for sample_name, result in results.items()
     }
+    rejected_frames = {
+        sample_name: result.rejected_hits
+        for sample_name, result in results.items()
+    }
     same_sample = relationship == "동일 샘플 내 반복시료"
     if same_sample:
         comparison = replicate_area_view(
-            build_replicate_area_comparison(summary_frames)
+            build_replicate_area_comparison(
+                summary_frames, rejected_frames, ri_tolerance=ri_tolerance,
+            )
         )
         comparison_label = "Area 비교"
         comparison_sheet = "area_comparison"
@@ -606,9 +698,11 @@ def render_multi_results(
     with tabs[0]:
         if same_sample:
             st.caption(
-                "같은 Compound name 중 RT 차이가 ±0.05분 이내이고 RI 차이가 ±30 이내인 조합을 "
-                "동일 물질로 봅니다. 가장 많은 반복파일을 포함한 뒤 Area CV가 가장 작은 조합의 "
-                "Mean RT, Mean RI, 모든 샘플별 Area와 Area 평균을 표시합니다."
+                f"같은 Compound name 중 RT 차이가 ±0.05분 이내이고 RI 차이가 ±{ri_tolerance:g} 이내인 "
+                "조합을 동일 물질로 봅니다. 이 범위를 만족하는 군집이 여러 개면 생략하지 않고 모두 "
+                "별도 행으로 표시합니다. 한 군집이 전체 반복 수의 70% 이상에서 검출되면, 나머지 "
+                "샘플에서 Quality가 낮아 제외됐더라도 같은 물질로 함께 제시하며 해당 Area 칸을 "
+                "빨간색으로 표시해 유의가 필요함을 나타냅니다."
             )
         else:
             st.caption(
@@ -624,6 +718,8 @@ def render_multi_results(
                 column.metric(status, int(status_counts.get(status, 0)))
         if comparison.empty:
             st.info("비교 조건을 만족하는 물질이 없습니다.")
+        elif same_sample:
+            st.table(style_replicate_comparison(comparison))
         else:
             st.dataframe(
                 comparison,
@@ -649,18 +745,14 @@ def render_multi_results(
     with tabs[-1]:
         st.dataframe(profile, use_container_width=True, hide_index=True)
 
-    combined_selected = pd.concat(
-        [result.selected_hits for result in results.values()],
-        ignore_index=True,
-    )
     left, right = st.columns(2)
-    left.download_button(
-        "전체 샘플 Selected hits CSV 다운로드",
-        dataframe_to_csv_bytes(combined_selected),
-        "multi_selected_hits.csv",
-        "text/csv",
-        use_container_width=True,
-    )
+    with left:
+        render_selected_hits_download(
+            "전체 샘플 Selected hits",
+            {sample_name: result.selected_hits for sample_name, result in results.items()},
+            "multi_selected_hits",
+            "multi_selected_hits",
+        )
     right.download_button(
         "전체 샘플 결과 XLSX 다운로드",
         multi_results_to_xlsx_bytes(
@@ -709,12 +801,26 @@ def analysis_page(config: dict, standards: pd.DataFrame, profile: pd.DataFrame) 
             accept_multiple_files=True,
         )
         relationship = "단일 시료"
+        replicate_ri_tolerance = float(
+            st.session_state.get("replicate_ri_tolerance", DEFAULT_RI_TOLERANCE)
+        )
         if len(sample_uploads) > 1:
             relationship = st.radio(
                 "업로드 파일 관계",
                 ["동일 샘플 내 반복시료", "서로 다른 샘플"],
                 key="multi_file_relationship",
             )
+            if relationship == "동일 샘플 내 반복시료":
+                replicate_ri_tolerance = st.number_input(
+                    "반복시료 동일 물질 판정 RI 허용범위 (±)",
+                    min_value=1.0,
+                    max_value=200.0,
+                    value=replicate_ri_tolerance,
+                    step=1.0,
+                    key="replicate_ri_tolerance_widget",
+                    help="같은 이름의 물질을 동일 물질로 볼 때 허용하는 RI 차이입니다.",
+                )
+                st.session_state["replicate_ri_tolerance"] = float(replicate_ri_tolerance)
         start_clicked = st.button(
             "Start",
             key="analysis_start",
@@ -795,7 +901,9 @@ def analysis_page(config: dict, standards: pd.DataFrame, profile: pd.DataFrame) 
         sample_name, result = next(iter(results.items()))
         render_single_result(result, sample_name, standards, profile)
     else:
-        render_multi_results(results, relationship, standards, profile)
+        render_multi_results(
+            results, relationship, standards, profile, ri_tolerance=replicate_ri_tolerance,
+        )
 
 
 def main() -> None:
